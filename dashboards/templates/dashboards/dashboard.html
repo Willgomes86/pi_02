@@ -1,219 +1,579 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <title>Indicadores Integrados</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0 24px 48px;
-            background-color: #f7f7f7;
-        }
-        header {
-            background-color: #1f2933;
-            color: #fff;
-            padding: 24px;
-            margin: 0 -24px 24px;
-        }
-        h1 {
-            margin: 0;
-        }
-        section {
-            background-color: #fff;
-            margin-bottom: 24px;
-            padding: 24px;
-            border-radius: 12px;
-            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
-        }
-        h2 {
-            margin-top: 0;
-            color: #1f2933;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 16px;
-        }
-        th, td {
-            border: 1px solid #d1d5db;
-            padding: 8px 12px;
-            text-align: left;
-        }
-        th {
-            background-color: #e5e7eb;
-        }
-        .kpi-value {
-            font-size: 1.4rem;
-            font-weight: bold;
-        }
-        ul {
-            margin: 0;
-            padding-left: 18px;
-        }
-    </style>
-</head>
-<body>
-<header>
-    <h1>Resumo Executivo de KPIs</h1>
-    <p>Visão integrada dos indicadores de Comercial, Carteira, Compras e Planejamento.</p>
-</header>
+{% extends "base.html" %}
+{% load humanize %}
 
-<section>
-    <h2>Desempenho Comercial</h2>
-    <p class="kpi-value">Valor Total de Vendas: R$ {{ comercial.valor_total_vendas|floatformat:2 }}</p>
-    <p class="kpi-value">Total de Unidades Vendidas: {{ comercial.total_unidades }}</p>
-    <p class="kpi-value">Ticket Médio por Venda: R$ {{ comercial.ticket_medio_venda|floatformat:2 }}</p>
-    <p class="kpi-value">Ticket Médio por Unidade: R$ {{ comercial.ticket_medio_por_unidade|floatformat:2 }}</p>
+{% block title %}Dashboard Executivo | Gestão Integrada{% endblock %}
 
-    <h3>Vendas por Corretor / Empreendimento</h3>
-    <table>
-        <thead>
-        <tr>
-            <th>Corretor</th>
-            <th>Empreendimento</th>
-            <th>Unidades</th>
-            <th>Valor (R$)</th>
-        </tr>
-        </thead>
-        <tbody>
-        {% for venda in comercial.vendas_por_corretor %}
-            <tr>
-                <td>{{ venda.corretor__nome }}</td>
-                <td>{{ venda.empreendimento__nome }}</td>
-                <td>{{ venda.total_unidades }}</td>
-                <td>{{ venda.total_valor|floatformat:2 }}</td>
-            </tr>
-        {% empty %}
-            <tr><td colspan="4">Nenhum dado cadastrado.</td></tr>
-        {% endfor %}
-        </tbody>
-    </table>
+{% block extra_head %}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" integrity="sha384-2kTX0bkkCm1cW0XkyRjO6jwxKF1u9IiMaivGi99ZTSdKCbFf8gDuwZQ+QpimeOqG" crossorigin="anonymous"></script>
+{% endblock %}
+
+{% block content %}
+<div class="row g-3 mb-4">
+    <div class="col-12 col-sm-6 col-xl-3">
+        <div class="card card-kpi h-100">
+            <div class="card-body">
+                <p class="text-uppercase text-muted small mb-1">Valor Total de Vendas</p>
+                <h3 class="fw-bold mb-2">R$ {{ comercial.valor_total_vendas|floatformat:2 }}</h3>
+                <p class="mb-0 text-secondary">Receita acumulada do período analisado.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-12 col-sm-6 col-xl-3">
+        <div class="card card-kpi h-100">
+            <div class="card-body">
+                <p class="text-uppercase text-muted small mb-1">Unidades Vendidas</p>
+                <h3 class="fw-bold mb-2">{{ comercial.total_unidades }}</h3>
+                <p class="mb-0 text-secondary">Volume consolidado de unidades comercializadas.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-12 col-sm-6 col-xl-3">
+        <div class="card card-kpi h-100">
+            <div class="card-body">
+                <p class="text-uppercase text-muted small mb-1">Ticket Médio por Venda</p>
+                <h3 class="fw-bold mb-2">R$ {{ comercial.ticket_medio_venda|floatformat:2 }}</h3>
+                <p class="mb-0 text-secondary">Valor médio dos contratos fechados.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-12 col-sm-6 col-xl-3">
+        <div class="card card-kpi h-100">
+            <div class="card-body">
+                <p class="text-uppercase text-muted small mb-1">Ticket Médio por Unidade</p>
+                <h3 class="fw-bold mb-2">R$ {{ comercial.ticket_medio_por_unidade|floatformat:2 }}</h3>
+                <p class="mb-0 text-secondary">Indicador de precificação por unidade comercializada.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<section id="comercial" class="mb-5">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-3 mb-3">
+        <h2 class="section-title mb-0">Desempenho Comercial</h2>
+        <span class="badge text-bg-primary px-3 py-2">Visão 360º de Vendas</span>
+    </div>
+    <div class="card card-kpi mb-4">
+        <div class="card-body">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+                <h3 class="subsection-title mb-0">Comparativo de Vendas</h3>
+                <div class="btn-group" role="group" aria-label="Comparativo de Vendas">
+                    <button type="button" class="btn btn-outline-primary active" data-period="mensal">Mensal</button>
+                    <button type="button" class="btn btn-outline-primary" data-period="bimestral">Bimestral</button>
+                    <button type="button" class="btn btn-outline-primary" data-period="semestral">Semestral</button>
+                </div>
+            </div>
+            <canvas id="comparativoVendasChart" height="120"></canvas>
+            <div class="table-responsive mt-4">
+                {% for periodo, dados in comercial.comparativos.items %}
+                    <table class="table table-sm align-middle" data-period-table="{{ periodo }}" {% if not forloop.first %}style="display: none"{% endif %}>
+                        <thead>
+                            <tr class="table-light">
+                                <th>Período</th>
+                                <th>Receita (R$)</th>
+                                <th>Unidades</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for item in dados %}
+                            <tr>
+                                <td>{{ item.label }}</td>
+                                <td>R$ {{ item.valor|floatformat:2 }}</td>
+                                <td>{{ item.unidades }}</td>
+                            </tr>
+                        {% empty %}
+                            <tr><td colspan="3" class="text-center text-muted">Sem dados cadastrados.</td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    <div class="card card-kpi">
+        <div class="card-body">
+            <h3 class="subsection-title">Ranking de Vendas por Corretor / Empreendimento</h3>
+            <div class="table-responsive mt-3">
+                <table class="table table-hover align-middle">
+                    <thead>
+                        <tr class="table-light">
+                            <th>Corretor</th>
+                            <th>Empreendimento</th>
+                            <th>Unidades</th>
+                            <th>Valor (R$)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for venda in comercial.vendas_por_corretor %}
+                        <tr>
+                            <td>{{ venda.corretor__nome }}</td>
+                            <td>{{ venda.empreendimento__nome }}</td>
+                            <td>{{ venda.total_unidades }}</td>
+                            <td>R$ {{ venda.total_valor|floatformat:2 }}</td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="4" class="text-center text-muted">Nenhum dado cadastrado.</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
 </section>
 
-<section>
-    <h2>Saúde Financeira da Carteira</h2>
-    <p class="kpi-value">Taxa de Inadimplência: {{ carteira.taxa_inadimplencia|floatformat:2 }}%</p>
-    <p class="kpi-value">Valor Recebido: R$ {{ carteira.valor_recebido|floatformat:2 }}</p>
-    <p class="kpi-value">Saldo Devedor: R$ {{ carteira.saldo_devedor|floatformat:2 }}</p>
-
-    <h3>Inadimplência por Faixa de Atraso</h3>
-    <table>
-        <thead>
-        <tr>
-            <th>Faixa (dias)</th>
-            <th>Valor em Atraso (R$)</th>
-        </tr>
-        </thead>
-        <tbody>
-        {% for faixa, valor in carteira.inadimplencia_por_faixa.items %}
-            <tr>
-                <td>{{ faixa }}</td>
-                <td>{{ valor|floatformat:2 }}</td>
-            </tr>
-        {% empty %}
-            <tr><td colspan="2">Nenhum atraso registrado.</td></tr>
-        {% endfor %}
-        </tbody>
-    </table>
+<section id="carteira" class="mb-5">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-3 mb-3">
+        <h2 class="section-title mb-0">Saúde Financeira da Carteira</h2>
+        <span class="badge text-bg-warning px-3 py-2">Foco em Inadimplência</span>
+    </div>
+    <div class="row g-3">
+        <div class="col-12 col-lg-4">
+            <div class="card card-kpi h-100">
+                <div class="card-body">
+                    <p class="text-uppercase text-muted small mb-1">Taxa de Inadimplência</p>
+                    <h3 class="fw-bold mb-2">{{ carteira.taxa_inadimplencia|floatformat:2 }}%</h3>
+                    <p class="mb-0 text-secondary">Percentual do saldo em atraso sobre o total da carteira.</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-lg-4">
+            <div class="card card-kpi h-100">
+                <div class="card-body">
+                    <p class="text-uppercase text-muted small mb-1">Valor Recebido</p>
+                    <h3 class="fw-bold mb-2">R$ {{ carteira.valor_recebido|floatformat:2 }}</h3>
+                    <p class="mb-0 text-secondary">Total efetivamente pago pelos clientes.</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-lg-4">
+            <div class="card card-kpi h-100">
+                <div class="card-body">
+                    <p class="text-uppercase text-muted small mb-1">Saldo Devedor</p>
+                    <h3 class="fw-bold mb-2">R$ {{ carteira.saldo_devedor|floatformat:2 }}</h3>
+                    <p class="mb-0 text-secondary">Montante ainda a receber.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="row g-3 mt-1">
+        <div class="col-12 col-xl-6">
+            <div class="card card-kpi h-100">
+                <div class="card-body">
+                    <h3 class="subsection-title">Inadimplência por Faixa de Atraso</h3>
+                    <div class="table-responsive mt-3">
+                        <table class="table table-sm align-middle">
+                            <thead>
+                                <tr class="table-light">
+                                    <th>Faixa (dias)</th>
+                                    <th>Valor em Atraso (R$)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            {% for faixa, valor in carteira.inadimplencia_por_faixa.items %}
+                                <tr>
+                                    <td>{{ faixa }}</td>
+                                    <td>R$ {{ valor|floatformat:2 }}</td>
+                                </tr>
+                            {% empty %}
+                                <tr><td colspan="2" class="text-center text-muted">Nenhum atraso registrado.</td></tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-xl-6">
+            <div class="card card-kpi h-100">
+                <div class="card-body">
+                    <h3 class="subsection-title">Inadimplência por Corretor</h3>
+                    <canvas id="inadimplenciaCorretorChart" height="140"></canvas>
+                    <div class="table-responsive mt-4">
+                        <table class="table table-sm align-middle">
+                            <thead>
+                                <tr class="table-light">
+                                    <th>Corretor</th>
+                                    <th>Carteira (R$)</th>
+                                    <th>Valor Inadimplente (R$)</th>
+                                    <th>Taxa (%)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            {% for corretor in carteira.inadimplencia_por_corretor %}
+                                <tr>
+                                    <td>{{ corretor.corretor }}</td>
+                                    <td>R$ {{ corretor.total_carteira|floatformat:2 }}</td>
+                                    <td>R$ {{ corretor.valor_inadimplente|floatformat:2 }}</td>
+                                    <td>{{ corretor.taxa|floatformat:2 }}%</td>
+                                </tr>
+                            {% empty %}
+                                <tr><td colspan="4" class="text-center text-muted">Sem dados para análise.</td></tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </section>
 
-<section>
-    <h2>Gestão de Custos de Compras</h2>
-    <p class="kpi-value">Custo Total de Compras: R$ {{ compras.custo_total|floatformat:2 }}</p>
-
-    <h3>Custo por Empreendimento</h3>
-    <table>
-        <thead>
-        <tr>
-            <th>Empreendimento</th>
-            <th>Valor (R$)</th>
-        </tr>
-        </thead>
-        <tbody>
-        {% for item in compras.custo_por_empreendimento %}
-            <tr>
-                <td>{{ item.empreendimento__nome }}</td>
-                <td>{{ item.total|floatformat:2 }}</td>
-            </tr>
-        {% empty %}
-            <tr><td colspan="2">Nenhum pedido registrado.</td></tr>
-        {% endfor %}
-        </tbody>
-    </table>
-
-    <h3>Participação por Fornecedor</h3>
-    <table>
-        <thead>
-        <tr>
-            <th>Fornecedor</th>
-            <th>Valor (R$)</th>
-            <th>Participação (%)</th>
-        </tr>
-        </thead>
-        <tbody>
-        {% for fornecedor in compras.supplier_share %}
-            <tr>
-                <td>{{ fornecedor.fornecedor }}</td>
-                <td>{{ fornecedor.valor|floatformat:2 }}</td>
-                <td>{{ fornecedor.percentual|floatformat:2 }}</td>
-            </tr>
-        {% empty %}
-            <tr><td colspan="3">Nenhum dado cadastrado.</td></tr>
-        {% endfor %}
-        </tbody>
-    </table>
+<section id="compras" class="mb-5">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-3 mb-3">
+        <h2 class="section-title mb-0">Gestão de Custos de Compras</h2>
+        <span class="badge text-bg-success px-3 py-2">Controle de Fornecedores</span>
+    </div>
+    <div class="row g-3">
+        <div class="col-12 col-lg-4">
+            <div class="card card-kpi h-100">
+                <div class="card-body">
+                    <p class="text-uppercase text-muted small mb-1">Custo Total de Compras</p>
+                    <h3 class="fw-bold mb-2">R$ {{ compras.custo_total|floatformat:2 }}</h3>
+                    <p class="mb-0 text-secondary">Investimentos realizados em materiais, serviços e insumos.</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-lg-8">
+            <div class="card card-kpi h-100">
+                <div class="card-body">
+                    <h3 class="subsection-title">Custo por Empreendimento</h3>
+                    <div class="table-responsive mt-3">
+                        <table class="table table-hover align-middle">
+                            <thead>
+                                <tr class="table-light">
+                                    <th>Empreendimento</th>
+                                    <th>Valor (R$)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            {% for item in compras.custo_por_empreendimento %}
+                                <tr>
+                                    <td>{{ item.empreendimento__nome }}</td>
+                                    <td>R$ {{ item.total|floatformat:2 }}</td>
+                                </tr>
+                            {% empty %}
+                                <tr><td colspan="2" class="text-center text-muted">Nenhum pedido registrado.</td></tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="row g-3 mt-1">
+        <div class="col-12 col-xl-6">
+            <div class="card card-kpi h-100">
+                <div class="card-body">
+                    <h3 class="subsection-title">Participação por Fornecedor</h3>
+                    <canvas id="supplierShareChart" height="140"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-xl-6">
+            <div class="card card-kpi h-100">
+                <div class="card-body">
+                    <h3 class="subsection-title">Detalhamento de Fornecedores</h3>
+                    <div class="table-responsive mt-3">
+                        <table class="table table-sm align-middle">
+                            <thead>
+                                <tr class="table-light">
+                                    <th>Fornecedor</th>
+                                    <th>Valor (R$)</th>
+                                    <th>Participação (%)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            {% for fornecedor in compras.supplier_share %}
+                                <tr>
+                                    <td>{{ fornecedor.fornecedor }}</td>
+                                    <td>R$ {{ fornecedor.valor|floatformat:2 }}</td>
+                                    <td>{{ fornecedor.percentual|floatformat:2 }}%</td>
+                                </tr>
+                            {% empty %}
+                                <tr><td colspan="3" class="text-center text-muted">Sem dados consolidados.</td></tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </section>
 
-<section>
-    <h2>Indicadores Estratégicos</h2>
-    <h3>Planejado vs. Realizado</h3>
-    <table>
-        <thead>
-        <tr>
-            <th>Empreendimento</th>
-            <th>Custo Planejado (R$)</th>
-            <th>Custo Real (R$)</th>
-            <th>Variação (R$)</th>
-        </tr>
-        </thead>
-        <tbody>
-        {% for item in estrategicos.planejado_vs_realizado %}
-            <tr>
-                <td>{{ item.empreendimento__nome }}</td>
-                <td>{{ item.custo_planejado|floatformat:2 }}</td>
-                <td>{{ item.custo_real|floatformat:2 }}</td>
-                <td>{{ item.variacao|floatformat:2 }}</td>
-            </tr>
-        {% empty %}
-            <tr><td colspan="4">Nenhum planejamento cadastrado.</td></tr>
-        {% endfor %}
-        </tbody>
-    </table>
-
-    <h3>Margem de Lucro por Empreendimento</h3>
-    <table>
-        <thead>
-        <tr>
-            <th>Empreendimento</th>
-            <th>Receita (R$)</th>
-            <th>Custos (R$)</th>
-            <th>Margem (R$)</th>
-        </tr>
-        </thead>
-        <tbody>
-        {% for margem in estrategicos.margem_por_empreendimento %}
-            <tr>
-                <td>{{ margem.empreendimento }}</td>
-                <td>{{ margem.vendas|floatformat:2 }}</td>
-                <td>{{ margem.custos|floatformat:2 }}</td>
-                <td>{{ margem.margem|floatformat:2 }}</td>
-            </tr>
-        {% empty %}
-            <tr><td colspan="4">Nenhuma margem calculada.</td></tr>
-        {% endfor %}
-        </tbody>
-    </table>
+<section id="estrategico" class="mb-5">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-3 mb-3">
+        <h2 class="section-title mb-0">Indicadores Estratégicos Integrados</h2>
+        <span class="badge text-bg-info px-3 py-2">Visão Multissetorial</span>
+    </div>
+    <div class="row g-3">
+        <div class="col-12 col-xl-6">
+            <div class="card card-kpi h-100">
+                <div class="card-body">
+                    <h3 class="subsection-title">Planejado vs. Realizado</h3>
+                    <div class="table-responsive mt-3">
+                        <table class="table table-hover align-middle">
+                            <thead>
+                                <tr class="table-light">
+                                    <th>Empreendimento</th>
+                                    <th>Planejado (R$)</th>
+                                    <th>Real (R$)</th>
+                                    <th>Variação (R$)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            {% for item in estrategicos.planejado_vs_realizado %}
+                                <tr class="{% if item.variacao > 0 %}table-danger{% elif item.variacao < 0 %}table-success{% endif %}">
+                                    <td>{{ item.empreendimento__nome }}</td>
+                                    <td>R$ {{ item.custo_planejado|floatformat:2 }}</td>
+                                    <td>R$ {{ item.custo_real|floatformat:2 }}</td>
+                                    <td>R$ {{ item.variacao|floatformat:2 }}</td>
+                                </tr>
+                            {% empty %}
+                                <tr><td colspan="4" class="text-center text-muted">Nenhum planejamento cadastrado.</td></tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-xl-6">
+            <div class="card card-kpi h-100">
+                <div class="card-body">
+                    <h3 class="subsection-title">Margem de Lucro por Empreendimento</h3>
+                    <div class="table-responsive mt-3">
+                        <table class="table table-hover align-middle">
+                            <thead>
+                                <tr class="table-light">
+                                    <th>Empreendimento</th>
+                                    <th>Receita (R$)</th>
+                                    <th>Custos (R$)</th>
+                                    <th>Margem (R$)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            {% for margem in estrategicos.margem_por_empreendimento %}
+                                <tr class="{% if margem.margem < 0 %}table-danger{% endif %}">
+                                    <td>{{ margem.empreendimento }}</td>
+                                    <td>R$ {{ margem.vendas|floatformat:2 }}</td>
+                                    <td>R$ {{ margem.custos|floatformat:2 }}</td>
+                                    <td>R$ {{ margem.margem|floatformat:2 }}</td>
+                                </tr>
+                            {% empty %}
+                                <tr><td colspan="4" class="text-center text-muted">Nenhuma margem calculada.</td></tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </section>
-</body>
-</html>
+
+{{ charts_payload|json_script:"charts-data" }}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const chartsData = JSON.parse(document.getElementById('charts-data').textContent);
+
+    const vendasCtx = document.getElementById('comparativoVendasChart');
+    const inadimplenciaCtx = document.getElementById('inadimplenciaCorretorChart');
+    const supplierCtx = document.getElementById('supplierShareChart');
+
+    const periodButtons = document.querySelectorAll('[data-period]');
+    const periodTables = document.querySelectorAll('[data-period-table]');
+
+    const vendasChartConfig = (period = 'mensal') => {
+        const dataset = chartsData.comparativos_vendas[period] || [];
+        return {
+            type: 'line',
+            data: {
+                labels: dataset.map(item => item.label),
+                datasets: [
+                    {
+                        label: 'Receita (R$)',
+                        data: dataset.map(item => item.valor),
+                        borderColor: '#2563eb',
+                        backgroundColor: 'rgba(37, 99, 235, 0.15)',
+                        tension: 0.3,
+                        fill: true,
+                        yAxisID: 'y',
+                    },
+                    {
+                        label: 'Unidades Vendidas',
+                        data: dataset.map(item => item.unidades),
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                        borderDash: [6, 6],
+                        tension: 0.2,
+                        fill: true,
+                        yAxisID: 'y1',
+                    },
+                ],
+            },
+            options: {
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function (context) {
+                                if (context.datasetIndex === 0) {
+                                    return `${context.dataset.label}: R$ ${context.parsed.y.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`;
+                                }
+                                return `${context.dataset.label}: ${context.parsed.y}`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        type: 'linear',
+                        position: 'left',
+                        ticks: {
+                            callback: value => `R$ ${Number(value).toLocaleString('pt-BR')}`
+                        }
+                    },
+                    y1: {
+                        type: 'linear',
+                        position: 'right',
+                        grid: {
+                            drawOnChartArea: false,
+                        },
+                    },
+                },
+            }
+        };
+    };
+
+    let vendasChart = null;
+    if (vendasCtx) {
+        vendasChart = new Chart(vendasCtx, vendasChartConfig());
+    }
+
+    periodButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            const period = button.getAttribute('data-period');
+            periodButtons.forEach(btn => btn.classList.remove('active'));
+            button.classList.add('active');
+
+            periodTables.forEach(table => {
+                table.style.display = table.getAttribute('data-period-table') === period ? '' : 'none';
+            });
+
+            if (vendasChart) {
+                vendasChart.destroy();
+                vendasChart = new Chart(vendasCtx, vendasChartConfig(period));
+            }
+        });
+    });
+
+    if (periodTables.length) {
+        const defaultPeriod = document.querySelector('[data-period].active')?.getAttribute('data-period');
+        periodTables.forEach(table => {
+            table.style.display = table.getAttribute('data-period-table') === defaultPeriod ? '' : 'none';
+        });
+    }
+
+    if (inadimplenciaCtx) {
+        const inadData = chartsData.inadimplencia_corretor;
+        new Chart(inadimplenciaCtx, {
+            type: 'bar',
+            data: {
+                labels: inadData.labels,
+                datasets: [
+                    {
+                        label: 'Valor Inadimplente (R$)',
+                        data: inadData.values,
+                        backgroundColor: 'rgba(239, 68, 68, 0.75)',
+                        borderRadius: 6,
+                    },
+                    {
+                        label: 'Taxa de Inadimplência (%)',
+                        data: inadData.taxas,
+                        backgroundColor: 'rgba(59, 130, 246, 0.45)',
+                        borderRadius: 6,
+                        yAxisID: 'y1',
+                    }
+                ],
+            },
+            options: {
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function (context) {
+                                if (context.datasetIndex === 0) {
+                                    return `${context.dataset.label}: R$ ${context.parsed.y.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`;
+                                }
+                                return `${context.dataset.label}: ${context.parsed.y.toLocaleString('pt-BR', {minimumFractionDigits: 2})}%`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        ticks: {
+                            callback: value => `R$ ${Number(value).toLocaleString('pt-BR')}`
+                        }
+                    },
+                    y1: {
+                        position: 'right',
+                        grid: {
+                            drawOnChartArea: false,
+                        },
+                        ticks: {
+                            callback: value => `${value}%`
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    if (supplierCtx) {
+        const supplierData = chartsData.supplier_share;
+        new Chart(supplierCtx, {
+            type: 'doughnut',
+            data: {
+                labels: supplierData.labels,
+                datasets: [{
+                    data: supplierData.values,
+                    backgroundColor: [
+                        '#2563eb', '#22c55e', '#f97316', '#ef4444', '#a855f7', '#14b8a6'
+                    ],
+                }],
+            },
+            options: {
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function (context) {
+                                const total = context.dataset.data.reduce((sum, value) => sum + value, 0);
+                                const percentual = total ? (context.parsed / total) * 100 : 0;
+                                return `${context.label}: R$ ${context.parsed.toLocaleString('pt-BR', {minimumFractionDigits: 2})} (${percentual.toFixed(2)}%)`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+</script>
+{% endblock %}
