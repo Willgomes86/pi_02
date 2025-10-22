@@ -577,7 +577,7 @@ class Command(BaseCommand):
 
             for sheet in xls.sheet_names:
                 try:
-                    df = xls.parse(sheet)
+                    df = xls.parse(sheet, header=None)
                 except Exception as e:
                     self.stderr.write(f"[ERRO] Lendo aba {sheet} em {f.name}: {e}")
                     continue
@@ -597,27 +597,53 @@ class Command(BaseCommand):
                         pass
 
                 try:
-                    if force == "compras" or (not force and looks_like_compras(df)):
+                    fname = f.name.casefold()
+
+                    # heurística de tipo usando o NOME do arquivo:
+                    forced_by_name = None
+                    if "comercial" in fname:
+                        forced_by_name = "comercial"
+                    elif "compras" in fname:
+                        forced_by_name = "compras"
+                    elif "carteira" in fname:
+                        forced_by_name = "carteira"
+                    elif "planejamento" in fname:
+                        forced_by_name = "planejamento"
+
+                    tipo = force or forced_by_name
+                    if not tipo:
+                        # fallback pelas heurísticas de conteúdo, se o nome não ajudou
+                        if looks_like_compras(df):
+                            tipo = "compras"
+                        elif looks_like_carteira(df):
+                            tipo = "carteira"
+                        elif looks_like_comercial(df):
+                            tipo = "comercial"
+                        elif looks_like_planejamento(df):
+                            tipo = "planejamento"
+
+                    if tipo == "compras":
                         import_compras(df, f.name, debug=debug)
                         self.stdout.write(
                             self.style.SUCCESS(f"[OK] Compras <- {f.name}:{sheet}")
                         )
                         imported += 1
-                    elif force == "carteira" or (not force and looks_like_carteira(df)):
+
+                    elif tipo == "carteira":
                         import_carteira(df, f.name)
                         self.stdout.write(
                             self.style.SUCCESS(f"[OK] Carteira <- {f.name}:{sheet}")
                         )
                         imported += 1
-                    elif force == "comercial" or (not force and looks_like_comercial(df)):
+
+                    elif tipo == "comercial":
                         import_comercial(df, f.name, debug=debug)
                         self.stdout.write(
                             self.style.SUCCESS(f"[OK] Comercial <- {f.name}:{sheet}")
                         )
                         imported += 1
-                    elif force == "planejamento" or (
-                        not force and looks_like_planejamento(df)
-                    ):
+
+                    elif tipo == "planejamento":
                         import_planejamento(df, f.name)
                         self.stdout.write(
                             self.style.SUCCESS(
@@ -625,6 +651,7 @@ class Command(BaseCommand):
                             )
                         )
                         imported += 1
+
                     else:
                         self.stdout.write(
                             self.style.WARNING(
