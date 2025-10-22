@@ -25,6 +25,10 @@ class Recebivel(TimeStampedModel):
         verbose_name = "Recebível"
         verbose_name_plural = "Recebíveis"
         ordering = ("data_vencimento",)
+        indexes = [
+            models.Index(fields=["data_vencimento"]),
+            models.Index(fields=["status"]),
+        ]
 
     def __str__(self) -> str:
         return f"Parcela {self.id} - {self.venda}"

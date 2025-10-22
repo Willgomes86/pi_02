@@ -2,8 +2,11 @@ asgiref==3.9.1
 Django==5.2.6
 djangorestframework==3.15.2
 psycopg2-binary==2.9.10
+python-decouple==3.8
 python-dotenv==1.1.1
 sqlparse==0.5.3
 tzdata==2025.2
 weasyprint>=62.0
 Pillow>=10.0
+pandas==2.3.3
+openpyxl==3.1.5
