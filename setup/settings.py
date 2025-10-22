@@ -42,6 +42,10 @@ INSTALLED_APPS = [
     'planejamento',
 ]
 
+INSTALLED_APPS += [
+    "ingestao",
+]
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
