@@ -4,8 +4,9 @@ import json
 
 from django.contrib.auth.decorators import login_required
 from django.core.serializers.json import DjangoJSONEncoder
-from django.db.models import Avg, DecimalField, ExpressionWrapper, F, Sum
+from django.db.models import Avg, Count, DecimalField, ExpressionWrapper, F, Sum
 from django.db.models.functions import Coalesce, TruncMonth
+from django.http import JsonResponse
 from django.shortcuts import render
 from django.utils import timezone
 
@@ -329,3 +330,57 @@ def dashboard_overview(request):
         "charts_payload": charts_payload,
     }
     return render(request, "dashboards/dashboard.html", context)
+
+
+def kpis_resumo(request):
+    # Total de vendas (contrato), ticket médio e parcelas em atraso
+    total_vendas = Venda.objects.aggregate(v=Sum("valor_contrato"))["v"] or Decimal("0")
+    qtd_vendas = Venda.objects.count()
+    ticket_medio = (total_vendas / qtd_vendas) if qtd_vendas else Decimal("0")
+
+    em_atraso = (
+        Recebivel.objects.filter(status__in=["atrasado", "renegociado"])
+        .aggregate(v=Sum("valor"))["v"]
+        or Decimal("0")
+    )
+
+    return JsonResponse(
+        {
+            "total_vendas": str(total_vendas),
+            "qtd_vendas": qtd_vendas,
+            "ticket_medio": str(ticket_medio),
+            "carteira_em_atraso": str(em_atraso),
+        }
+    )
+
+
+def series_vendas(request):
+    qs = (
+        Venda.objects.annotate(m=TruncMonth("data_venda"))
+        .values("m")
+        .annotate(total=Sum("valor_contrato"), qtd=Count("id"))
+        .order_by("m")
+    )
+    data = [
+        {
+            "mes": r["m"].strftime("%Y-%m") if r["m"] else None,
+            "total": str(r["total"] or 0),
+            "qtd": r["qtd"],
+        }
+        for r in qs
+        if r["m"]
+    ]
+    return JsonResponse({"series": data})
+
+
+def series_carteira(request):
+    qs = (
+        Recebivel.objects.values("status")
+        .annotate(total=Sum("valor"))
+        .order_by("status")
+    )
+    data = [
+        {"status": r["status"], "total": str(r["total"] or 0)}
+        for r in qs
+    ]
+    return JsonResponse({"series": data})
