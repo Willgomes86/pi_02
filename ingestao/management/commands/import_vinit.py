@@ -1,5 +1,6 @@
+import math
 import re
-from datetime import date, datetime
+from datetime import datetime, date
 from decimal import Decimal
 from pathlib import Path
 from typing import Optional
@@ -31,6 +32,67 @@ def to_decimal_pt(value):
     s = PT_NUM.sub("", s).replace(",", ".")
     try:
         return Decimal(s)
+    except Exception:
+        return None
+
+
+def safe_decimal(value, default="0"):
+    """
+    Converte qualquer coisa (incluindo NaN/None/'') para Decimal seguro.
+    """
+    if value is None:
+        return Decimal(default)
+    # pandas NaN (float) ou string 'NaN'
+    try:
+        if isinstance(value, float) and math.isnan(value):
+            return Decimal(default)
+    except Exception:
+        pass
+    s = str(value).strip()
+    if not s or s.lower() in {"nan", "none", "null"}:
+        return Decimal(default)
+    d = to_decimal_pt(s)
+    return d if d is not None else Decimal(default)
+
+
+def normalize_date(value):
+    """
+    Aceita pandas.Timestamp, datetime, date, string variada, NaT/NaN/None.
+    Retorna date ou None.
+    """
+    if value is None:
+        return None
+    # pandas Timestamp
+    if hasattr(value, "to_pydatetime"):
+        try:
+            return value.to_pydatetime().date()
+        except Exception:
+            try:
+                return value.date()
+            except Exception:
+                return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    # strings
+    s = str(value).strip()
+    if not s or s.lower() in {"nan", "nat", "none", "null"}:
+        return None
+    # tenta vários formatos
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except Exception:
+            continue
+    # último recurso: pandas.to_datetime
+    try:
+        import pandas as pd
+
+        dt = pd.to_datetime(s, errors="coerce")
+        if pd.isna(dt):
+            return None
+        return dt.to_pydatetime().date()
     except Exception:
         return None
 
@@ -237,9 +299,10 @@ def import_compras(df: pd.DataFrame, filename: str, debug=False):
         df,
         keywords_groups=[
             ["Fornecedor", "Pedido", "Insumo", "Descrição", "Produto"],
-            ["Qtde", "Quantidade", "Valor Unit", "Valor Unitário", "Preço"],
+            ["Qtde", "Quantidade", "Valor Unit", "Valor Unitário", "Preço", "Total"],
         ],
     )
+    df = normalize_columns(df)
     columns = list(df.columns)
 
     col_fornecedor = best_column_match(columns, ["Fornecedor", "Fornecedor Nome"])
@@ -253,9 +316,8 @@ def import_compras(df: pd.DataFrame, filename: str, debug=False):
     if debug:
         print(f"[DEBUG compras] header_at={hdr} cols={columns}")
         print(
-            "[DEBUG compras] fornecedor={} insumo={} qtde={} unit={} total={}".format(
-                col_fornecedor, col_insumo, col_qtde, col_val_unit, col_total
-            )
+            f"[DEBUG compras] fornecedor={col_fornecedor} insumo={col_insumo} qtde={col_qtde} "
+            f"unit={col_val_unit} total={col_total}"
         )
 
     if not col_insumo:
@@ -266,22 +328,28 @@ def import_compras(df: pd.DataFrame, filename: str, debug=False):
         nome=emp_nome or "Empreendimento Desconhecido", defaults={"cidade": ""}
     )
 
-    pedido = PedidoCompra.objects.create(
-        fornecedor=None,
-        empreendimento=emp,
-        numero_pedido=clean_str(filename),
-        observacoes="Importado automaticamente de relatório Vinit (compras).",
-    )
+    # cria/obtém fornecedor default (caso o model exija)
+    fornecedor_default, _ = Fornecedor.objects.get_or_create(nome="Fornecedor Desconhecido")
+
+    # cria um PedidoCompra "sintético" com campos que EXISTEM no model
+    # descobre campos do model dinamicamente
+    pedido_fields = {f.name for f in PedidoCompra._meta.get_fields() if hasattr(f, "attname")}
+    pedido_kwargs = {}
+
+    # setamos apenas se o campo existir:
+    if "empreendimento" in pedido_fields:
+        pedido_kwargs["empreendimento"] = emp
+    if "fornecedor" in pedido_fields:
+        pedido_kwargs["fornecedor"] = fornecedor_default
+    # se tiver "data" no model, podemos pôr hoje (opcional):
+    if "data" in pedido_fields:
+        pedido_kwargs["data"] = date.today()
+
+    pedido = PedidoCompra.objects.create(**pedido_kwargs)
 
     for _, row in df.iterrows():
         desc = clean_str(row.get(col_insumo))
-        if not desc or desc.lower() in {
-            "nan",
-            "descricao",
-            "descrição",
-            "produto",
-            "insumo",
-        }:
+        if not desc or desc.lower() in {"nan", "descricao", "descrição", "produto", "insumo"}:
             continue
 
         fornecedor = None
@@ -291,24 +359,27 @@ def import_compras(df: pd.DataFrame, filename: str, debug=False):
 
         qtde_raw = row.get(col_qtde) if col_qtde else 1
         try:
-            qtde = (
-                int(str(qtde_raw).split(",")[0])
-                if qtde_raw not in (None, "", "nan")
-                else 1
-            )
+            qtde = int(str(qtde_raw).split(",")[0]) if qtde_raw not in (None, "", "nan") else 1
         except Exception:
             qtde = 1
 
-        custo_unit = to_decimal_pt(row.get(col_val_unit)) if col_val_unit else None
+        custo_unit = safe_decimal(row.get(col_val_unit))
 
-        ItemCompra.objects.create(
-            pedido=pedido,
-            descricao=desc,
-            quantidade=qtde,
-            custo_unitario=custo_unit or Decimal("0"),
-        )
+        item_kwargs = {
+            "pedido": pedido,
+            "descricao": desc,
+            "quantidade": qtde,
+            "custo_unitario": custo_unit,
+        }
 
-        if fornecedor and pedido.fornecedor is None:
+        # só manda campos que existem no model ItemCompra
+        item_fields = {f.name for f in ItemCompra._meta.get_fields() if hasattr(f, "attname")}
+        item_kwargs = {k: v for k, v in item_kwargs.items() if k in item_fields}
+
+        ItemCompra.objects.create(**item_kwargs)
+
+        # se o model do PedidoCompra tiver fornecedor e ele ainda for "desconhecido", atualiza com fornecedor real
+        if fornecedor and "fornecedor" in pedido_fields and pedido.fornecedor_id == fornecedor_default.id:
             pedido.fornecedor = fornecedor
             pedido.save(update_fields=["fornecedor"])
 
@@ -322,6 +393,7 @@ def import_comercial(df: pd.DataFrame, filename: str, debug=False):
             ["Data", "Venda", "Contrato", "Valor", "Unidades", "Qtde"],
         ],
     )
+    df = normalize_columns(df)
     columns = list(df.columns)
 
     col_emp = best_column_match(columns, ["Empreendimento", "Obra", "Projeto"])
@@ -332,13 +404,10 @@ def import_comercial(df: pd.DataFrame, filename: str, debug=False):
     col_unid = best_column_match(columns, ["Unidades", "Qtde", "Quantidade"])
 
     if debug:
+        print(f"[DEBUG comercial] header_at={hdr} cols={columns}")
         print(
-            f"[DEBUG comercial] header_at={hdr} cols={columns}"
-        )
-        print(
-            "[DEBUG comercial] emp={} cliente={} corretor={} valor={} data={} unidades={}".format(
-                col_emp, col_cliente, col_corretor, col_valor, col_data, col_unid
-            )
+            f"[DEBUG comercial] emp={col_emp} cliente={col_cliente} corretor={col_corretor} "
+            f"valor={col_valor} data={col_data} unidades={col_unid}"
         )
 
     if not (col_emp or col_cliente):
@@ -355,16 +424,12 @@ def import_comercial(df: pd.DataFrame, filename: str, debug=False):
 
         cliente = clean_str(row.get(col_cliente)) if col_cliente else "Cliente"
         corretor_nome = clean_str(row.get(col_corretor)) if col_corretor else ""
-        valor = to_decimal_pt(row.get(col_valor)) if col_valor else None
-        data = row.get(col_data) if col_data else None
+        valor = safe_decimal(row.get(col_valor))
+        data = normalize_date(row.get(col_data))
 
         unidades_raw = row.get(col_unid) if col_unid else 1
         try:
-            unidades = (
-                int(str(unidades_raw).split(",")[0])
-                if unidades_raw not in (None, "", "nan")
-                else 1
-            )
+            unidades = int(str(unidades_raw).split(",")[0]) if unidades_raw not in (None, "", "nan") else 1
         except Exception:
             unidades = 1
 
@@ -378,84 +443,52 @@ def import_comercial(df: pd.DataFrame, filename: str, debug=False):
             corretor=corretor,
             data_venda=data,
             unidades_vendidas=unidades,
-            valor_contrato=valor or Decimal("0"),
+            valor_contrato=valor,
         )
 
 
 @transaction.atomic
-def import_carteira(df: pd.DataFrame, filename: str) -> None:
-    df = first_non_empty_header(df)
+def import_carteira(df: pd.DataFrame, filename: str):
+    df, _ = sniff_header_row(
+        df,
+        keywords_groups=[
+            ["Empreendimento", "Cliente", "Contrato"],
+            ["Parcela", "Nº", "Numero", "Vencimento", "Valor", "Pago", "Status"],
+        ],
+    )
     df = normalize_columns(df)
 
-    col_emp = next((c for c in df.columns if "Empreendimento" in c), None)
-    col_venc = next((c for c in df.columns if "Vencimento" in c), None)
-    col_valor = next(
-        (
-            c
-            for c in df.columns
-            if "Valor" in c and ("Parcela" in c or c.strip() == "Valor")
-        ),
-        None,
-    )
-    col_pago = next((c for c in df.columns if "Pago" in c), None)
-    col_status = next((c for c in df.columns if "Status" in c), None)
-    col_corretor = next((c for c in df.columns if "Corretor" in c), None)
-    col_cliente = next((c for c in df.columns if "Cliente" in c or "Comprador" in c), None)
+    col_emp = best_column_match(list(df.columns), ["Empreendimento", "Obra", "Projeto"])
+    col_parcela = best_column_match(list(df.columns), ["Parcela", "Nº", "Numero"])
+    col_venc = best_column_match(list(df.columns), ["Vencimento", "Dt Venc", "Data Vencimento"])
+    col_valor = best_column_match(list(df.columns), ["Valor Parcela", "Valor", "Total"])
+    col_pago = best_column_match(list(df.columns), ["Pago", "Valor Pago"])
+    col_status = best_column_match(list(df.columns), ["Status", "Situação"])
 
     for _, row in df.iterrows():
         emp_nome = clean_str(row.get(col_emp)) if col_emp else parse_emp_name(df)
         if not emp_nome:
             continue
-        empreendimento = get_or_create_empreendimento(emp_nome)
+        emp, _ = Empreendimento.objects.get_or_create(nome=emp_nome, defaults={"cidade": ""})
 
-        cliente_nome = clean_str(row.get(col_cliente)) if col_cliente else "Cliente"
-        corretor_nome = clean_str(row.get(col_corretor)) if col_corretor else DEFAULT_CORRETOR
-        corretor = get_or_create_corretor(corretor_nome)
+        valor_raw = row.get(col_valor) if col_valor else None
 
-        valor_parcela = to_decimal_pt(row.get(col_valor)) if col_valor else None
-        data_vencimento = (
-            parse_date(row.get(col_venc), default=timezone.localdate())
-            if col_venc
-            else timezone.localdate()
+        # cria venda "sintética" apenas para vincular parcela (se não houver ID real)
+        venda = Venda.objects.create(
+            empreendimento=emp,
+            cliente_nome="Cliente",
+            unidades_vendidas=1,
+            valor_contrato=safe_decimal(valor_raw)
         )
 
-        venda, _ = Venda.objects.get_or_create(
-            corretor=corretor,
-            empreendimento=empreendimento,
-            cliente_nome=cliente_nome or "Cliente",
-            data_venda=timezone.localdate(),
-            defaults={
-                "unidades_vendidas": 1,
-                "valor_contrato": valor_parcela or Decimal("0"),
-            },
-        )
-
-        valor_pago = to_decimal_pt(row.get(col_pago)) if col_pago else None
-        status = normalize_recebivel_status(row.get(col_status) if col_status else "")
-
-        recebivel, created = Recebivel.objects.get_or_create(
+        Recebivel.objects.create(
             venda=venda,
-            data_vencimento=data_vencimento,
-            defaults={
-                "valor": valor_parcela or Decimal("0"),
-                "valor_pago": valor_pago or Decimal("0"),
-                "status": status,
-            },
+            numero_parcela=clean_str(row.get(col_parcela)) if col_parcela else "",
+            data_vencimento=normalize_date(row.get(col_venc)),
+            valor=safe_decimal(valor_raw),
+            valor_pago=safe_decimal(row.get(col_pago)) if col_pago else Decimal("0"),
+            status=(clean_str(row.get(col_status)) or "aberto").lower() if col_status else "aberto",
         )
-
-        if not created:
-            updates = []
-            if valor_parcela is not None and recebivel.valor != valor_parcela:
-                recebivel.valor = valor_parcela
-                updates.append("valor")
-            if valor_pago is not None and recebivel.valor_pago != valor_pago:
-                recebivel.valor_pago = valor_pago
-                updates.append("valor_pago")
-            if status and recebivel.status != status:
-                recebivel.status = status
-                updates.append("status")
-            if updates:
-                recebivel.save(update_fields=updates)
 
 
 @transaction.atomic
