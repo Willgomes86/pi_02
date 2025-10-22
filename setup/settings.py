@@ -72,31 +72,26 @@ TEMPLATES = [
 WSGI_APPLICATION = 'setup.wsgi.application'
 
 
-# Database
+# Database (PostgreSQL only)
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-db_name = os.getenv("DB_NAME")
+DB_NAME = os.getenv("DB_NAME")
+if not DB_NAME:
+    raise RuntimeError(
+        "DB_NAME não definido. Configure o .env para usar PostgreSQL. "
+        "Este projeto não suporta SQLite."
+    )
 
-if db_name:
-    # Configuração para PostgreSQL quando as variáveis estão presentes
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.postgresql",
-            "NAME": db_name,
-            "USER": os.getenv("DB_USER", ""),
-            "PASSWORD": os.getenv("DB_PASSWORD", ""),
-            "HOST": os.getenv("DB_HOST", "localhost"),
-            "PORT": os.getenv("DB_PORT", "5432"),
-        }
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": DB_NAME,
+        "USER": os.getenv("DB_USER", ""),
+        "PASSWORD": os.getenv("DB_PASSWORD", ""),
+        "HOST": os.getenv("DB_HOST", "localhost"),
+        "PORT": os.getenv("DB_PORT", "5432"),
     }
-else:
-    # Fallback para SQLite para uso em desenvolvimento/testes
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
-        }
-    }
+}
 
 
 # Password validation
