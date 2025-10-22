@@ -2,7 +2,7 @@ import re
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Optional, Set
+from typing import Optional
 
 import pandas as pd
 from django.core.management.base import BaseCommand, CommandError
@@ -21,19 +21,10 @@ DEFAULT_CORRETOR = "Corretor Desconhecido"
 
 
 def to_decimal_pt(value):
-    """
-    Converte números pt-BR: "1.234.567,89" -> Decimal("1234567.89")
-    Aceita vazios/NaN.
-    """
-
-    if value is None or (isinstance(value, float) and pd.isna(value)):
+    if value is None:
         return None
     if isinstance(value, (int, float, Decimal)):
-        try:
-            return Decimal(str(value))
-        except Exception:
-            return None
-
+        return Decimal(str(value))
     s = str(value).strip()
     if not s or s.lower() in {"nan", "none"}:
         return None
@@ -44,8 +35,8 @@ def to_decimal_pt(value):
         return None
 
 
-def clean_str(value) -> str:
-    return (str(value).strip() if value is not None else "").strip()
+def clean_str(s):
+    return (str(s).strip() if s is not None else "").strip()
 
 
 def parse_date(value, default: Optional[date] = None) -> Optional[date]:
@@ -100,24 +91,83 @@ def parse_int(value, default: int = 1) -> int:
         return default
 
 
+def _contains_any(text: str, keywords: list[str]) -> bool:
+    t = (text or "").casefold()
+    return any(k.casefold() in t for k in keywords)
+
+
+def sniff_header_row(
+    df: pd.DataFrame, keywords_groups: list[list[str]], max_scan: int = 15
+):
+    """
+    Procura a 'linha de cabeçalho' nas primeiras N linhas que contenha
+    um conjunto suficiente de palavras-chave de algum grupo.
+    Retorna (df_reheader, header_index) ou (df, None) se não achou.
+    """
+
+    limit = min(max_scan, len(df.index))
+    for i in range(limit):
+        candidate = [clean_str(c) for c in df.iloc[i].astype(str).tolist()]
+        if candidate.count("") >= len(candidate) * 0.5:
+            continue
+        hits = 0
+        for group in keywords_groups:
+            if (
+                sum(1 for c in candidate if _contains_any(c, group))
+                >= max(2, len(group) // 2)
+            ):
+                hits += 1
+        if hits > 0:
+            df2 = df.copy()
+            df2.columns = candidate
+            df2 = df2.iloc[i + 1 :].reset_index(drop=True)
+            return normalize_columns(df2), i
+    return normalize_columns(df.copy()), None
+
+
+def best_column_match(columns: list[str], synonyms: list[str]):
+    """
+    Dada uma lista de nomes de colunas e uma lista de sinônimos,
+    retorna o primeiro nome de coluna que contemple algum sinônimo.
+    """
+
+    for syn in synonyms:
+        for c in columns:
+            if syn.casefold() in c.casefold():
+                return c
+    return None
+
+
 def looks_like_compras(df: pd.DataFrame) -> bool:
-    cols = " ".join(map(str, df.columns))
-    return ("Fornecedor" in cols and "Insumo" in cols) or ("Pedidos" in cols and "Compras" in cols)
+    txt = " ".join(map(str, df.columns))
+    if _contains_any(txt, ["Fornecedor", "Insumo", "Descrição", "Produto", "Pedido", "Qtde"]):
+        return True
+    sample = " ".join(map(lambda x: " ".join(map(str, x)), df.head(5).values.tolist()))
+    return _contains_any(sample, ["Fornecedor", "Pedido", "Insumo", "Produto", "Valor"])
 
 
 def looks_like_comercial(df: pd.DataFrame) -> bool:
-    cols = " ".join(map(str, df.columns))
-    return "Vendas" in cols or "Empreendimento" in cols or "Cliente" in cols
+    txt = " ".join(map(str, df.columns))
+    if _contains_any(txt, ["Vendas", "Empreendimento", "Cliente", "Corretor", "Contrato", "Valor"]):
+        return True
+    sample = " ".join(map(lambda x: " ".join(map(str, x)), df.head(5).values.tolist()))
+    return _contains_any(sample, ["Empreendimento", "Cliente", "Corretor", "Venda"])
 
 
 def looks_like_carteira(df: pd.DataFrame) -> bool:
-    cols = " ".join(map(str, df.columns))
-    return ("Carteira" in cols) or ("Vencimento" in cols and "Parcela" in cols)
+    txt = " ".join(map(str, df.columns))
+    if _contains_any(txt, ["Carteira", "Parcela", "Vencimento", "Pago", "Status"]):
+        return True
+    sample = " ".join(map(lambda x: " ".join(map(str, x)), df.head(5).values.tolist()))
+    return _contains_any(sample, ["Parcela", "Vencimento", "Recebível"])
 
 
 def looks_like_planejamento(df: pd.DataFrame) -> bool:
-    cols = " ".join(map(str, df.columns))
-    return ("Planejamento" in cols) or ("Categoria" in cols and "Custo" in cols)
+    txt = " ".join(map(str, df.columns))
+    if _contains_any(txt, ["Planejamento", "Categoria", "Custo", "Início", "Fim"]):
+        return True
+    sample = " ".join(map(lambda x: " ".join(map(str, x)), df.head(5).values.tolist()))
+    return _contains_any(sample, ["Categoria", "Custo", "Tarefa", "Planejamento"])
 
 
 def first_non_empty_header(df: pd.DataFrame) -> pd.DataFrame:
@@ -182,166 +232,154 @@ def normalize_recebivel_status(value: str) -> str:
 
 
 @transaction.atomic
-def import_compras(df: pd.DataFrame, filename: str) -> None:
-    df = first_non_empty_header(df)
-    df = normalize_columns(df)
+def import_compras(df: pd.DataFrame, filename: str, debug=False):
+    df, hdr = sniff_header_row(
+        df,
+        keywords_groups=[
+            ["Fornecedor", "Pedido", "Insumo", "Descrição", "Produto"],
+            ["Qtde", "Quantidade", "Valor Unit", "Valor Unitário", "Preço"],
+        ],
+    )
+    columns = list(df.columns)
 
-    col_fornecedor = next((c for c in df.columns if "Fornecedor" in c), None)
-    col_insumo = next((c for c in df.columns if "Insumo" in c or "Descrição" in c), None)
-    col_qtde = next((c for c in df.columns if "Qtde" in c or "Quantidade" in c), None)
-    col_valor_unit = next(
-        (
-            c
-            for c in df.columns
-            if "Valor Unit" in c or "Valor Unitário" in c or "Preço" in c
-        ),
-        None,
+    col_fornecedor = best_column_match(columns, ["Fornecedor", "Fornecedor Nome"])
+    col_insumo = best_column_match(columns, ["Insumo", "Descrição", "Produto", "Item"])
+    col_qtde = best_column_match(columns, ["Qtde", "Quantidade"])
+    col_val_unit = best_column_match(
+        columns, ["Valor Unitário", "Valor Unit", "Preço Unit", "Preço"]
     )
-    col_total = next(
-        (
-            c
-            for c in df.columns
-            if c.strip().lower() in {"total", "valor total"} or "Total" in c
-        ),
-        None,
-    )
-    col_data = next(
-        (
-            c
-            for c in df.columns
-            if "Data" in c and ("Pedido" in c or c.strip().lower() == "data")
-        ),
-        None,
-    )
+    col_total = best_column_match(columns, ["Total", "Valor Total"])
 
-    if col_insumo is None:
+    if debug:
+        print(f"[DEBUG compras] header_at={hdr} cols={columns}")
+        print(
+            "[DEBUG compras] fornecedor={} insumo={} qtde={} unit={} total={}".format(
+                col_fornecedor, col_insumo, col_qtde, col_val_unit, col_total
+            )
+        )
+
+    if not col_insumo:
         return
 
     emp_nome = parse_emp_name(df)
-    empreendimento = get_or_create_empreendimento(emp_nome)
+    emp, _ = Empreendimento.objects.get_or_create(
+        nome=emp_nome or "Empreendimento Desconhecido", defaults={"cidade": ""}
+    )
 
-    pedidos_atualizados: Set[int] = set()
+    pedido = PedidoCompra.objects.create(
+        fornecedor=None,
+        empreendimento=emp,
+        numero_pedido=clean_str(filename),
+        observacoes="Importado automaticamente de relatório Vinit (compras).",
+    )
 
     for _, row in df.iterrows():
-        descricao = clean_str(row.get(col_insumo))
-        if not descricao:
+        desc = clean_str(row.get(col_insumo))
+        if not desc or desc.lower() in {
+            "nan",
+            "descricao",
+            "descrição",
+            "produto",
+            "insumo",
+        }:
             continue
 
+        fornecedor = None
         fornecedor_nome = clean_str(row.get(col_fornecedor)) if col_fornecedor else ""
-        fornecedor = get_or_create_fornecedor(fornecedor_nome)
+        if fornecedor_nome and fornecedor_nome.lower() not in {"fornecedor"}:
+            fornecedor, _ = Fornecedor.objects.get_or_create(nome=fornecedor_nome)
 
-        quantidade = parse_int(row.get(col_qtde)) if col_qtde else 1
-        valor_unitario = to_decimal_pt(row.get(col_valor_unit)) if col_valor_unit else None
-        valor_total = to_decimal_pt(row.get(col_total)) if col_total else None
+        qtde_raw = row.get(col_qtde) if col_qtde else 1
+        try:
+            qtde = (
+                int(str(qtde_raw).split(",")[0])
+                if qtde_raw not in (None, "", "nan")
+                else 1
+            )
+        except Exception:
+            qtde = 1
 
-        if valor_total is None and valor_unitario is not None:
-            valor_total = (valor_unitario or Decimal("0")) * Decimal(max(quantidade, 1))
-        elif valor_total is not None and valor_unitario is None and quantidade:
-            try:
-                valor_unitario = (valor_total or Decimal("0")) / Decimal(max(quantidade, 1))
-            except Exception:
-                valor_unitario = None
+        custo_unit = to_decimal_pt(row.get(col_val_unit)) if col_val_unit else None
 
-        data_pedido = parse_date(row.get(col_data), default=timezone.localdate()) if col_data else timezone.localdate()
-
-        pedido, _ = PedidoCompra.objects.get_or_create(
-            empreendimento=empreendimento,
-            fornecedor=fornecedor,
-            data_pedido=data_pedido,
-            categoria="outros",
-            defaults={"valor_total": Decimal("0")},
-        )
-
-        item, created = ItemCompra.objects.get_or_create(
+        ItemCompra.objects.create(
             pedido=pedido,
-            descricao=descricao,
-            defaults={
-                "quantidade": max(quantidade, 1),
-                "custo_unitario": valor_unitario or Decimal("0"),
-            },
+            descricao=desc,
+            quantidade=qtde,
+            custo_unitario=custo_unit or Decimal("0"),
         )
 
-        if not created:
-            updated = False
-            if quantidade and item.quantidade != max(quantidade, 1):
-                item.quantidade = max(quantidade, 1)
-                updated = True
-            if valor_unitario is not None and item.custo_unitario != valor_unitario:
-                item.custo_unitario = valor_unitario
-                updated = True
-            if updated:
-                item.save(update_fields=["quantidade", "custo_unitario"])
-
-        pedidos_atualizados.add(pedido.pk)
-
-    for pedido_id in pedidos_atualizados:
-        pedido = PedidoCompra.objects.get(pk=pedido_id)
-        total = sum(
-            (item.custo_unitario or Decimal("0")) * Decimal(item.quantidade or 0)
-            for item in pedido.itens.all()
-        )
-        pedido.valor_total = total
-        pedido.save(update_fields=["valor_total"])
+        if fornecedor and pedido.fornecedor is None:
+            pedido.fornecedor = fornecedor
+            pedido.save(update_fields=["fornecedor"])
 
 
 @transaction.atomic
-def import_comercial(df: pd.DataFrame, filename: str) -> None:
-    df = first_non_empty_header(df)
-    df = normalize_columns(df)
+def import_comercial(df: pd.DataFrame, filename: str, debug=False):
+    df, hdr = sniff_header_row(
+        df,
+        keywords_groups=[
+            ["Empreendimento", "Cliente", "Corretor"],
+            ["Data", "Venda", "Contrato", "Valor", "Unidades", "Qtde"],
+        ],
+    )
+    columns = list(df.columns)
 
-    col_emp = next((c for c in df.columns if "Empreendimento" in c), None)
-    col_cliente = next((c for c in df.columns if "Cliente" in c), None)
-    col_corretor = next((c for c in df.columns if "Corretor" in c), None)
-    col_valor = next(
-        (
-            c
-            for c in df.columns
-            if ("Valor" in c and "Contrato" in c) or c.strip() == "Valor"
-        ),
-        None,
-    )
-    col_data = next((c for c in df.columns if "Data" in c), None)
-    col_unidades = next(
-        (c for c in df.columns if "Unidades" in c or "Qtde" in c),
-        None,
-    )
+    col_emp = best_column_match(columns, ["Empreendimento", "Obra", "Projeto"])
+    col_cliente = best_column_match(columns, ["Cliente", "Comprador", "Proponente"])
+    col_corretor = best_column_match(columns, ["Corretor", "Vendedor"])
+    col_valor = best_column_match(columns, ["Valor Contrato", "Valor", "Total"])
+    col_data = best_column_match(columns, ["Data Venda", "Data", "Emissão"])
+    col_unid = best_column_match(columns, ["Unidades", "Qtde", "Quantidade"])
+
+    if debug:
+        print(
+            f"[DEBUG comercial] header_at={hdr} cols={columns}"
+        )
+        print(
+            "[DEBUG comercial] emp={} cliente={} corretor={} valor={} data={} unidades={}".format(
+                col_emp, col_cliente, col_corretor, col_valor, col_data, col_unid
+            )
+        )
+
+    if not (col_emp or col_cliente):
+        return
 
     for _, row in df.iterrows():
         emp_nome = clean_str(row.get(col_emp)) if col_emp else parse_emp_name(df)
-        if not emp_nome:
+        if not emp_nome or emp_nome.lower() in {"empreendimento"}:
             continue
-        empreendimento = get_or_create_empreendimento(emp_nome)
 
-        cliente_nome = clean_str(row.get(col_cliente)) if col_cliente else "Cliente"
-        corretor_nome = clean_str(row.get(col_corretor)) if col_corretor else DEFAULT_CORRETOR
-        corretor = get_or_create_corretor(corretor_nome)
-
-        valor_contrato = to_decimal_pt(row.get(col_valor)) if col_valor else None
-        data_venda = parse_date(row.get(col_data), default=timezone.localdate()) if col_data else timezone.localdate()
-        unidades = parse_int(row.get(col_unidades)) if col_unidades else 1
-
-        venda, created = Venda.objects.get_or_create(
-            corretor=corretor,
-            empreendimento=empreendimento,
-            cliente_nome=cliente_nome or "Cliente",
-            data_venda=data_venda,
-            defaults={
-                "unidades_vendidas": max(unidades, 1),
-                "valor_contrato": valor_contrato or Decimal("0"),
-            },
+        emp, _ = Empreendimento.objects.get_or_create(
+            nome=emp_nome, defaults={"cidade": ""}
         )
 
-        if not created:
-            updated_fields = []
-            unidades_normalizadas = max(unidades, 1)
-            if venda.unidades_vendidas != unidades_normalizadas:
-                venda.unidades_vendidas = unidades_normalizadas
-                updated_fields.append("unidades_vendidas")
-            if valor_contrato is not None and venda.valor_contrato != valor_contrato:
-                venda.valor_contrato = valor_contrato
-                updated_fields.append("valor_contrato")
-            if updated_fields:
-                venda.save(update_fields=updated_fields)
+        cliente = clean_str(row.get(col_cliente)) if col_cliente else "Cliente"
+        corretor_nome = clean_str(row.get(col_corretor)) if col_corretor else ""
+        valor = to_decimal_pt(row.get(col_valor)) if col_valor else None
+        data = row.get(col_data) if col_data else None
+
+        unidades_raw = row.get(col_unid) if col_unid else 1
+        try:
+            unidades = (
+                int(str(unidades_raw).split(",")[0])
+                if unidades_raw not in (None, "", "nan")
+                else 1
+            )
+        except Exception:
+            unidades = 1
+
+        corretor = None
+        if corretor_nome and corretor_nome.lower() not in {"corretor", "vendedor"}:
+            corretor, _ = Corretor.objects.get_or_create(nome=corretor_nome)
+
+        Venda.objects.create(
+            empreendimento=emp,
+            cliente_nome=cliente or "Cliente",
+            corretor=corretor,
+            data_venda=data,
+            unidades_vendidas=unidades,
+            valor_contrato=valor or Decimal("0"),
+        )
 
 
 @transaction.atomic
@@ -501,9 +539,22 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--path", required=True, help="Pasta contendo os .xlsx")
+        parser.add_argument(
+            "--force",
+            choices=["compras", "comercial", "carteira", "planejamento"],
+            help="Força o tipo de importação",
+        )
+        parser.add_argument(
+            "--debug",
+            action="store_true",
+            help="Mostra colunas detectadas e salva amostras",
+        )
 
     def handle(self, *args, **opts):
         path = Path(opts["path"]).expanduser().resolve()
+        force = opts.get("force")
+        debug = bool(opts.get("debug"))
+
         if not path.exists() or not path.is_dir():
             raise CommandError(f"Pasta inválida: {path}")
 
@@ -512,44 +563,61 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING("Nenhum .xlsx encontrado."))
             return
 
+        out_debug = path / "_debug_import"
+        if debug:
+            out_debug.mkdir(exist_ok=True)
+
         imported = 0
         for f in files:
             try:
                 xls = pd.ExcelFile(f)
-            except Exception as exc:
-                self.stderr.write(f"[ERRO] Abrindo {f.name}: {exc}")
+            except Exception as e:
+                self.stderr.write(f"[ERRO] Abrindo {f.name}: {e}")
                 continue
 
             for sheet in xls.sheet_names:
                 try:
                     df = xls.parse(sheet)
-                except Exception as exc:
-                    self.stderr.write(f"[ERRO] Lendo aba {sheet} em {f.name}: {exc}")
+                except Exception as e:
+                    self.stderr.write(f"[ERRO] Lendo aba {sheet} em {f.name}: {e}")
                     continue
 
                 if df.empty or df.shape[1] < 2:
                     continue
 
+                if debug:
+                    try:
+                        df.head(10).to_csv(
+                            out_debug
+                            / f"{f.stem}__{sheet}__preview.csv",
+                            index=False,
+                            encoding="utf-8-sig",
+                        )
+                    except Exception:
+                        pass
+
                 try:
-                    if looks_like_compras(df):
-                        import_compras(df, f.name)
+                    if force == "compras" or (not force and looks_like_compras(df)):
+                        import_compras(df, f.name, debug=debug)
                         self.stdout.write(
                             self.style.SUCCESS(f"[OK] Compras <- {f.name}:{sheet}")
                         )
                         imported += 1
-                    elif looks_like_carteira(df):
+                    elif force == "carteira" or (not force and looks_like_carteira(df)):
                         import_carteira(df, f.name)
                         self.stdout.write(
                             self.style.SUCCESS(f"[OK] Carteira <- {f.name}:{sheet}")
                         )
                         imported += 1
-                    elif looks_like_comercial(df):
-                        import_comercial(df, f.name)
+                    elif force == "comercial" or (not force and looks_like_comercial(df)):
+                        import_comercial(df, f.name, debug=debug)
                         self.stdout.write(
                             self.style.SUCCESS(f"[OK] Comercial <- {f.name}:{sheet}")
                         )
                         imported += 1
-                    elif looks_like_planejamento(df):
+                    elif force == "planejamento" or (
+                        not force and looks_like_planejamento(df)
+                    ):
                         import_planejamento(df, f.name)
                         self.stdout.write(
                             self.style.SUCCESS(
@@ -563,8 +631,8 @@ class Command(BaseCommand):
                                 f"[?] Ignorado (não reconhecido): {f.name}:{sheet}"
                             )
                         )
-                except Exception as exc:
-                    self.stderr.write(f"[ERRO] Processando {f.name}:{sheet}: {exc}")
+                except Exception as e:
+                    self.stderr.write(f"[ERRO] Processando {f.name}:{sheet}: {e}")
 
         self.stdout.write(
             self.style.SUCCESS(f"Finalizado. Abas importadas: {imported}")
