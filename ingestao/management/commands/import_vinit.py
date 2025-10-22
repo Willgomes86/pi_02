@@ -21,6 +21,13 @@ DEFAULT_FORNECEDOR = "Fornecedor Desconhecido"
 DEFAULT_CORRETOR = "Corretor Desconhecido"
 
 
+def safe_str(x, default=""):
+    s = clean_str(x)
+    if not s or s.lower() in {"nan", "none", "null"}:
+        return default
+    return s
+
+
 def to_decimal_pt(value):
     if value is None:
         return None
@@ -37,9 +44,6 @@ def to_decimal_pt(value):
 
 
 def safe_decimal(value, default="0"):
-    """
-    Converte qualquer coisa (incluindo NaN/None/'') para Decimal seguro.
-    """
     if value is None:
         return Decimal(default)
     # pandas NaN (float) ou string 'NaN'
@@ -95,6 +99,11 @@ def normalize_date(value):
         return dt.to_pydatetime().date()
     except Exception:
         return None
+
+
+def fallback_today(d):
+    """Se a data estiver vazia, devolve date.today()."""
+    return d or date.today()
 
 
 def clean_str(s):
@@ -295,67 +304,53 @@ def normalize_recebivel_status(value: str) -> str:
 
 @transaction.atomic
 def import_compras(df: pd.DataFrame, filename: str, debug=False):
-    df, hdr = sniff_header_row(
-        df,
-        keywords_groups=[
-            ["Fornecedor", "Pedido", "Insumo", "Descrição", "Produto"],
-            ["Qtde", "Quantidade", "Valor Unit", "Valor Unitário", "Preço", "Total"],
-        ],
-    )
+    df, hdr = sniff_header_row(df, keywords_groups=[
+        ["Fornecedor", "Pedido", "Insumo", "Descrição", "Produto"],
+        ["Qtde", "Quantidade", "Valor Unit", "Valor Unitário", "Preço", "Total", "Data"],
+    ])
     df = normalize_columns(df)
     columns = list(df.columns)
 
     col_fornecedor = best_column_match(columns, ["Fornecedor", "Fornecedor Nome"])
-    col_insumo = best_column_match(columns, ["Insumo", "Descrição", "Produto", "Item"])
-    col_qtde = best_column_match(columns, ["Qtde", "Quantidade"])
-    col_val_unit = best_column_match(
-        columns, ["Valor Unitário", "Valor Unit", "Preço Unit", "Preço"]
-    )
-    col_total = best_column_match(columns, ["Total", "Valor Total"])
-
-    if debug:
-        print(f"[DEBUG compras] header_at={hdr} cols={columns}")
-        print(
-            f"[DEBUG compras] fornecedor={col_fornecedor} insumo={col_insumo} qtde={col_qtde} "
-            f"unit={col_val_unit} total={col_total}"
-        )
+    col_insumo     = best_column_match(columns, ["Insumo", "Descrição", "Produto", "Item"])
+    col_qtde       = best_column_match(columns, ["Qtde", "Quantidade"])
+    col_val_unit   = best_column_match(columns, ["Valor Unitário", "Valor Unit", "Preço Unit", "Preço"])
+    col_total      = best_column_match(columns, ["Total", "Valor Total"])
+    col_data_any   = best_column_match(columns, ["Data Pedido", "Data", "Emissão", "Dt Pedido"])
 
     if not col_insumo:
         return
 
     emp_nome = parse_emp_name(df)
-    emp, _ = Empreendimento.objects.get_or_create(
-        nome=emp_nome or "Empreendimento Desconhecido", defaults={"cidade": ""}
-    )
+    emp, _ = Empreendimento.objects.get_or_create(nome=emp_nome or "Empreendimento Desconhecido", defaults={"cidade": ""})
 
-    # cria/obtém fornecedor default (caso o model exija)
     fornecedor_default, _ = Fornecedor.objects.get_or_create(nome="Fornecedor Desconhecido")
 
-    # cria um PedidoCompra "sintético" com campos que EXISTEM no model
-    # descobre campos do model dinamicamente
+    default_dt = None
+    if col_data_any:
+        for v in df[col_data_any].head(10).tolist():
+            d = normalize_date(v)
+            if d:
+                default_dt = d
+                break
+    data_pedido = fallback_today(default_dt)
+
     pedido_fields = {f.name for f in PedidoCompra._meta.get_fields() if hasattr(f, "attname")}
     pedido_kwargs = {}
-
-    # setamos apenas se o campo existir:
     if "empreendimento" in pedido_fields:
         pedido_kwargs["empreendimento"] = emp
     if "fornecedor" in pedido_fields:
         pedido_kwargs["fornecedor"] = fornecedor_default
-    # se tiver "data" no model, podemos pôr hoje (opcional):
-    if "data" in pedido_fields:
-        pedido_kwargs["data"] = date.today()
+    if "data_pedido" in pedido_fields:
+        pedido_kwargs["data_pedido"] = data_pedido
 
     pedido = PedidoCompra.objects.create(**pedido_kwargs)
 
+    item_fields = {f.name for f in ItemCompra._meta.get_fields() if hasattr(f, "attname")}
     for _, row in df.iterrows():
-        desc = clean_str(row.get(col_insumo))
-        if not desc or desc.lower() in {"nan", "descricao", "descrição", "produto", "insumo"}:
+        desc = safe_str(row.get(col_insumo))
+        if not desc or desc.lower() in {"descricao", "descrição", "produto", "insumo"}:
             continue
-
-        fornecedor = None
-        fornecedor_nome = clean_str(row.get(col_fornecedor)) if col_fornecedor else ""
-        if fornecedor_nome and fornecedor_nome.lower() not in {"fornecedor"}:
-            fornecedor, _ = Fornecedor.objects.get_or_create(nome=fornecedor_nome)
 
         qtde_raw = row.get(col_qtde) if col_qtde else 1
         try:
@@ -371,61 +366,37 @@ def import_compras(df: pd.DataFrame, filename: str, debug=False):
             "quantidade": qtde,
             "custo_unitario": custo_unit,
         }
-
-        # só manda campos que existem no model ItemCompra
-        item_fields = {f.name for f in ItemCompra._meta.get_fields() if hasattr(f, "attname")}
         item_kwargs = {k: v for k, v in item_kwargs.items() if k in item_fields}
-
         ItemCompra.objects.create(**item_kwargs)
-
-        # se o model do PedidoCompra tiver fornecedor e ele ainda for "desconhecido", atualiza com fornecedor real
-        if fornecedor and "fornecedor" in pedido_fields and pedido.fornecedor_id == fornecedor_default.id:
-            pedido.fornecedor = fornecedor
-            pedido.save(update_fields=["fornecedor"])
 
 
 @transaction.atomic
 def import_comercial(df: pd.DataFrame, filename: str, debug=False):
-    df, hdr = sniff_header_row(
-        df,
-        keywords_groups=[
-            ["Empreendimento", "Cliente", "Corretor"],
-            ["Data", "Venda", "Contrato", "Valor", "Unidades", "Qtde"],
-        ],
-    )
+    df, hdr = sniff_header_row(df, keywords_groups=[
+        ["Empreendimento", "Cliente", "Corretor"],
+        ["Data", "Venda", "Contrato", "Valor", "Unidades", "Qtde"],
+    ])
     df = normalize_columns(df)
     columns = list(df.columns)
 
-    col_emp = best_column_match(columns, ["Empreendimento", "Obra", "Projeto"])
+    col_emp     = best_column_match(columns, ["Empreendimento", "Obra", "Projeto"])
     col_cliente = best_column_match(columns, ["Cliente", "Comprador", "Proponente"])
-    col_corretor = best_column_match(columns, ["Corretor", "Vendedor"])
-    col_valor = best_column_match(columns, ["Valor Contrato", "Valor", "Total"])
-    col_data = best_column_match(columns, ["Data Venda", "Data", "Emissão"])
-    col_unid = best_column_match(columns, ["Unidades", "Qtde", "Quantidade"])
-
-    if debug:
-        print(f"[DEBUG comercial] header_at={hdr} cols={columns}")
-        print(
-            f"[DEBUG comercial] emp={col_emp} cliente={col_cliente} corretor={col_corretor} "
-            f"valor={col_valor} data={col_data} unidades={col_unid}"
-        )
-
-    if not (col_emp or col_cliente):
-        return
+    col_corretor= best_column_match(columns, ["Corretor", "Vendedor"])
+    col_valor   = best_column_match(columns, ["Valor Contrato", "Valor", "Total"])
+    col_data    = best_column_match(columns, ["Data Venda", "Data", "Emissão"])
+    col_unid    = best_column_match(columns, ["Unidades", "Qtde", "Quantidade"])
 
     for _, row in df.iterrows():
-        emp_nome = clean_str(row.get(col_emp)) if col_emp else parse_emp_name(df)
+        emp_nome = safe_str(row.get(col_emp)) if col_emp else parse_emp_name(df)
         if not emp_nome or emp_nome.lower() in {"empreendimento"}:
             continue
 
-        emp, _ = Empreendimento.objects.get_or_create(
-            nome=emp_nome, defaults={"cidade": ""}
-        )
+        emp, _ = Empreendimento.objects.get_or_create(nome=emp_nome, defaults={"cidade": ""})
 
-        cliente = clean_str(row.get(col_cliente)) if col_cliente else "Cliente"
-        corretor_nome = clean_str(row.get(col_corretor)) if col_corretor else ""
+        cliente  = safe_str(row.get(col_cliente), "Cliente")
+        corretor_nome = safe_str(row.get(col_corretor))
         valor = safe_decimal(row.get(col_valor))
-        data = normalize_date(row.get(col_data))
+        data  = fallback_today(normalize_date(row.get(col_data)))
 
         unidades_raw = row.get(col_unid) if col_unid else 1
         try:
@@ -449,13 +420,10 @@ def import_comercial(df: pd.DataFrame, filename: str, debug=False):
 
 @transaction.atomic
 def import_carteira(df: pd.DataFrame, filename: str):
-    df, _ = sniff_header_row(
-        df,
-        keywords_groups=[
-            ["Empreendimento", "Cliente", "Contrato"],
-            ["Parcela", "Nº", "Numero", "Vencimento", "Valor", "Pago", "Status"],
-        ],
-    )
+    df, _ = sniff_header_row(df, keywords_groups=[
+        ["Empreendimento", "Cliente", "Contrato"],
+        ["Parcela", "Nº", "Numero", "Vencimento", "Valor", "Pago", "Status"],
+    ])
     df = normalize_columns(df)
 
     col_emp = best_column_match(list(df.columns), ["Empreendimento", "Obra", "Projeto"])
@@ -466,28 +434,31 @@ def import_carteira(df: pd.DataFrame, filename: str):
     col_status = best_column_match(list(df.columns), ["Status", "Situação"])
 
     for _, row in df.iterrows():
-        emp_nome = clean_str(row.get(col_emp)) if col_emp else parse_emp_name(df)
+        emp_nome = safe_str(row.get(col_emp)) if col_emp else parse_emp_name(df)
         if not emp_nome:
             continue
         emp, _ = Empreendimento.objects.get_or_create(nome=emp_nome, defaults={"cidade": ""})
 
-        valor_raw = row.get(col_valor) if col_valor else None
+        venc = normalize_date(row.get(col_venc))
+        data_venda = fallback_today(venc)
 
-        # cria venda "sintética" apenas para vincular parcela (se não houver ID real)
+        valor_parcela = safe_decimal(row.get(col_valor))
+
         venda = Venda.objects.create(
             empreendimento=emp,
             cliente_nome="Cliente",
             unidades_vendidas=1,
-            valor_contrato=safe_decimal(valor_raw)
+            valor_contrato=valor_parcela,
+            data_venda=data_venda,
         )
 
         Recebivel.objects.create(
             venda=venda,
-            numero_parcela=clean_str(row.get(col_parcela)) if col_parcela else "",
-            data_vencimento=normalize_date(row.get(col_venc)),
-            valor=safe_decimal(valor_raw),
+            numero_parcela=safe_str(row.get(col_parcela)),
+            data_vencimento=venc,
+            valor=valor_parcela,
             valor_pago=safe_decimal(row.get(col_pago)) if col_pago else Decimal("0"),
-            status=(clean_str(row.get(col_status)) or "aberto").lower() if col_status else "aberto",
+            status=(safe_str(row.get(col_status), "aberto")).lower(),
         )
 
 
