@@ -44,6 +44,10 @@ class PedidoCompra(TimeStampedModel):
         verbose_name = "Pedido de Compra"
         verbose_name_plural = "Pedidos de Compra"
         ordering = ("-data_pedido",)
+        indexes = [
+            models.Index(fields=["empreendimento"]),
+            models.Index(fields=["fornecedor"]),
+        ]
 
     def __str__(self) -> str:
         return f"{self.fornecedor} - {self.empreendimento}"
