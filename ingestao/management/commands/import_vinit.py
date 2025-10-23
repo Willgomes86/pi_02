@@ -429,29 +429,45 @@ def import_comercial(df: pd.DataFrame, filename: str, debug=False):
 def import_carteira(df: pd.DataFrame, filename: str):
     df, _ = sniff_header_row(df, keywords_groups=[
         ["Empreendimento", "Cliente", "Contrato"],
-        ["Parcela", "Nº", "Numero", "Vencimento", "Valor", "Pago", "Status"],
+        ["Parcela", "Nº", "Numero", "Vencimento", "Valor", "Pago", "Status"]
     ])
     df = normalize_columns(df)
 
     col_emp = best_column_match(list(df.columns), ["Empreendimento", "Obra", "Projeto"])
-    col_parcela = best_column_match(list(df.columns), ["Parcela", "Nº", "Numero"])
+    col_parcela = best_column_match(list(df.columns), ["Parcela", "Nº", "Numero", "N°"])
     col_venc = best_column_match(list(df.columns), ["Vencimento", "Dt Venc", "Data Vencimento"])
     col_valor = best_column_match(list(df.columns), ["Valor Parcela", "Valor", "Total"])
     col_pago = best_column_match(list(df.columns), ["Pago", "Valor Pago"])
     col_status = best_column_match(list(df.columns), ["Status", "Situação"])
 
+    # campos reais do model Recebivel
+    recebi_fields = {f.name for f in Recebivel._meta.get_fields() if hasattr(f, "attname")}
+
+    # mapeia “sinônimos” de campos do model para onde devemos gravar
+    # (vamos escolher o primeiro que existir no model)
+    def pick_field(candidates: list[str]):
+        for name in candidates:
+            if name in recebi_fields:
+                return name
+        return None
+
+    fld_numero   = pick_field(["numero_parcela", "parcela", "num_parcela", "n_parcela", "numero", "sequencia"])
+    fld_venc     = pick_field(["data_vencimento", "vencimento", "dt_vencimento"])
+    fld_valor    = pick_field(["valor", "valor_parcela", "valor_previsto"])
+    fld_valor_pg = pick_field(["valor_pago", "pago", "valor_recebido"])
+    fld_status   = pick_field(["status", "situacao"])
+
     for _, row in df.iterrows():
         emp_nome = safe_str(row.get(col_emp)) if col_emp else parse_emp_name(df)
         if not emp_nome:
             continue
-        emp, _ = Empreendimento.objects.get_or_create(
-            nome=emp_nome, defaults={"cidade": ""}
-        )
+        emp, _ = Empreendimento.objects.get_or_create(nome=emp_nome, defaults={"cidade": ""})
 
         venc = normalize_date(row.get(col_venc))
-        data_venda = fallback_today(venc)
-        valor_parcela = safe_decimal(row.get(col_valor))
+        data_venda = fallback_today(venc)                 # garante NOT NULL em Venda
+        valor_parcela = safe_decimal(row.get(col_valor))  # sempre Decimal
 
+        # garante corretor (NOT NULL)
         venda = Venda.objects.create(
             empreendimento=emp,
             cliente_nome="Cliente",
@@ -461,14 +477,21 @@ def import_carteira(df: pd.DataFrame, filename: str):
             valor_contrato=valor_parcela,
         )
 
-        Recebivel.objects.create(
-            venda=venda,
-            numero_parcela=safe_str(row.get(col_parcela)),
-            data_vencimento=venc,
-            valor=valor_parcela,
-            valor_pago=safe_decimal(row.get(col_pago)) if col_pago else Decimal("0"),
-            status=(safe_str(row.get(col_status), "aberto")).lower(),
-        )
+        # monta kwargs dinamicamente só com campos que existem no model
+        recebi_kwargs = {"venda": venda}
+
+        if fld_numero:
+            recebi_kwargs[fld_numero] = safe_str(row.get(col_parcela))
+        if fld_venc:
+            recebi_kwargs[fld_venc] = venc
+        if fld_valor:
+            recebi_kwargs[fld_valor] = valor_parcela
+        if fld_valor_pg:
+            recebi_kwargs[fld_valor_pg] = safe_decimal(row.get(col_pago)) if col_pago else Decimal("0")
+        if fld_status:
+            recebi_kwargs[fld_status] = (safe_str(row.get(col_status), "aberto")).lower()
+
+        Recebivel.objects.create(**recebi_kwargs)
 
 
 @transaction.atomic
