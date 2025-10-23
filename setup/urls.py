@@ -6,3 +6,7 @@ urlpatterns = [
     path("", include("usuarios.urls")),
     path("dashboards/", include("dashboards.urls")),
 ]
+
+urlpatterns += [
+    path("api/", include("api.urls")),
+]

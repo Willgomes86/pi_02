@@ -49,6 +49,7 @@ INSTALLED_APPS += [
     "django_filters",
     "django.contrib.humanize",
     "ingestao",
+    "api",
 ]
 
 MIDDLEWARE = [
