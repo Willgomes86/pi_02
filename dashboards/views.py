@@ -1,7 +1,9 @@
+import json
 from collections import OrderedDict
 from decimal import Decimal
-import json
+from functools import wraps
 
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import Avg, Count, DecimalField, ExpressionWrapper, F, Sum
@@ -14,6 +16,19 @@ from carteira.models import Recebivel
 from comercial.models import Empreendimento, Venda
 from compras.models import PedidoCompra
 from planejamento.models import TarefaPlanejada
+
+
+def optional_login_required(view_func):
+    """Apply login_required only when the project configuration demands it."""
+
+    if getattr(settings, "DASHBOARD_REQUIRE_LOGIN", False):
+        return login_required(view_func)
+
+    @wraps(view_func)
+    def _wrapped(request, *args, **kwargs):
+        return view_func(request, *args, **kwargs)
+
+    return _wrapped
 
 
 def _format_month_label(date_obj):
@@ -52,7 +67,7 @@ def _group_periods(data, key_func, label_func):
     return list(grouped.values())
 
 
-@login_required
+@optional_login_required
 def dashboard_overview(request):
     # Comercial KPIs
     vendas_stats = Venda.objects.aggregate(

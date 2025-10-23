@@ -22,7 +22,7 @@ class Corretor(TimeStampedModel):
 
 class Empreendimento(TimeStampedModel):
     nome = models.CharField(max_length=150)
-    cidade = models.CharField(max_length=80)
+    cidade = models.CharField(max_length=80, blank=True, default="")
     data_lancamento = models.DateField(null=True, blank=True)
 
     class Meta:
