@@ -7,7 +7,7 @@ from typing import Optional
 
 import pandas as pd
 from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils import timezone
 
 from compras.models import Fornecedor, ItemCompra, PedidoCompra
@@ -61,18 +61,60 @@ getcontext().prec = 28  # precisão confortável
 
 
 def max_for_decimalfield(model, field_name, default=Decimal("9999999999.99")):
+    """Calcula o maior valor suportado por um DecimalField.
+
+    Primeiro tenta utilizar os metadados do banco de dados (caso as migrações
+    ainda não reflitam o schema real), caindo para a definição do modelo e, por
+    fim, para ``default``. O resultado é sempre limitado por ``default`` para
+    evitar estouros em esquemas legados mais restritivos.
+    """
+
+    default_decimal = Decimal(default) if default is not None else None
+
     try:
-        f = model._meta.get_field(field_name)
-        md = getattr(f, "max_digits", None)
-        dp = getattr(f, "decimal_places", None)
-        if md and dp is not None:
-            # limite: 10^(md-dp) - 10^-dp
-            inteiro = md - dp
-            cap = (Decimal(10) ** inteiro) - (Decimal(1) / (Decimal(10) ** dp))
-            return cap.quantize(Decimal(1) / (Decimal(10) ** dp))
+        field = model._meta.get_field(field_name)
+    except Exception:
+        return default_decimal
+
+    max_digits = None
+    decimal_places = None
+
+    # Tentativa 1: introspecção direta no banco de dados.
+    try:
+        table_name = model._meta.db_table
+        column_name = field.column
+        with connection.cursor() as cursor:
+            description = connection.introspection.get_table_description(
+                cursor, table_name
+            )
+        for col in description:
+            if getattr(col, "name", None) == column_name:
+                precision = getattr(col, "precision", None)
+                scale = getattr(col, "scale", None)
+                if precision and scale is not None:
+                    max_digits = precision
+                    decimal_places = scale
+                break
     except Exception:
         pass
-    return default
+
+    # Tentativa 2: definição do modelo (caso a introspecção falhe).
+    if max_digits is None or decimal_places is None:
+        max_digits = getattr(field, "max_digits", None)
+        decimal_places = getattr(field, "decimal_places", None)
+
+    if max_digits and decimal_places is not None:
+        quant = Decimal(1) / (Decimal(10) ** decimal_places)
+        inteiro = max(max_digits - decimal_places, 0)
+        cap = (Decimal(10) ** inteiro) - quant
+        cap = cap.quantize(quant)
+
+        if default_decimal is not None and cap > default_decimal:
+            return default_decimal.quantize(quant)
+
+        return cap
+
+    return default_decimal
 
 
 def clamp_decimal(value: Decimal, cap: Decimal, decimal_places: int = 2) -> Decimal:
