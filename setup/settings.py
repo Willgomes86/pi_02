@@ -33,7 +33,6 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'django.contrib.humanize',
 
     #meus apps
 
@@ -46,6 +45,9 @@ INSTALLED_APPS = [
 ]
 
 INSTALLED_APPS += [
+    "rest_framework",
+    "django_filters",
+    "django.contrib.humanize",
     "ingestao",
 ]
 
@@ -145,3 +147,9 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 LOGIN_URL = 'usuarios:login'
 LOGIN_REDIRECT_URL = 'dashboards:overview'
 LOGOUT_REDIRECT_URL = 'usuarios:login'
+
+REST_FRAMEWORK = {
+    "DEFAULT_FILTER_BACKENDS": [
+        "django_filters.rest_framework.DjangoFilterBackend"
+    ],
+}
