@@ -13,7 +13,7 @@
         <div class="card card-kpi h-100">
             <div class="card-body">
                 <p class="text-uppercase text-muted small mb-1">Valor Total de Vendas</p>
-                <h3 class="fw-bold mb-2">R$ {{ comercial.valor_total_vendas|floatformat:2 }}</h3>
+                <h3 class="fw-bold mb-2">R$ {{ comercial.valor_total_vendas|floatformat:2|intcomma }}</h3>
                 <p class="mb-0 text-secondary">Receita acumulada do período analisado.</p>
             </div>
         </div>
@@ -31,7 +31,7 @@
         <div class="card card-kpi h-100">
             <div class="card-body">
                 <p class="text-uppercase text-muted small mb-1">Ticket Médio por Venda</p>
-                <h3 class="fw-bold mb-2">R$ {{ comercial.ticket_medio_venda|floatformat:2 }}</h3>
+                <h3 class="fw-bold mb-2">R$ {{ comercial.ticket_medio_venda|floatformat:2|intcomma }}</h3>
                 <p class="mb-0 text-secondary">Valor médio dos contratos fechados.</p>
             </div>
         </div>
@@ -40,7 +40,7 @@
         <div class="card card-kpi h-100">
             <div class="card-body">
                 <p class="text-uppercase text-muted small mb-1">Ticket Médio por Unidade</p>
-                <h3 class="fw-bold mb-2">R$ {{ comercial.ticket_medio_por_unidade|floatformat:2 }}</h3>
+                <h3 class="fw-bold mb-2">R$ {{ comercial.ticket_medio_por_unidade|floatformat:2|intcomma }}</h3>
                 <p class="mb-0 text-secondary">Indicador de precificação por unidade comercializada.</p>
             </div>
         </div>
@@ -77,7 +77,7 @@
                         {% for item in dados %}
                             <tr>
                                 <td>{{ item.label }}</td>
-                                <td>R$ {{ item.valor|floatformat:2 }}</td>
+                                <td>R$ {{ item.valor|floatformat:2|intcomma }}</td>
                                 <td>{{ item.unidades }}</td>
                             </tr>
                         {% empty %}
@@ -108,7 +108,7 @@
                             <td>{{ venda.corretor__nome }}</td>
                             <td>{{ venda.empreendimento__nome }}</td>
                             <td>{{ venda.total_unidades }}</td>
-                            <td>R$ {{ venda.total_valor|floatformat:2 }}</td>
+                            <td>R$ {{ venda.total_valor|floatformat:2|intcomma }}</td>
                         </tr>
                     {% empty %}
                         <tr><td colspan="4" class="text-center text-muted">Nenhum dado cadastrado.</td></tr>
@@ -139,7 +139,7 @@
             <div class="card card-kpi h-100">
                 <div class="card-body">
                     <p class="text-uppercase text-muted small mb-1">Valor Recebido</p>
-                    <h3 class="fw-bold mb-2">R$ {{ carteira.valor_recebido|floatformat:2 }}</h3>
+                    <h3 class="fw-bold mb-2">R$ {{ carteira.valor_recebido|floatformat:2|intcomma }}</h3>
                     <p class="mb-0 text-secondary">Total efetivamente pago pelos clientes.</p>
                 </div>
             </div>
@@ -148,7 +148,7 @@
             <div class="card card-kpi h-100">
                 <div class="card-body">
                     <p class="text-uppercase text-muted small mb-1">Saldo Devedor</p>
-                    <h3 class="fw-bold mb-2">R$ {{ carteira.saldo_devedor|floatformat:2 }}</h3>
+                    <h3 class="fw-bold mb-2">R$ {{ carteira.saldo_devedor|floatformat:2|intcomma }}</h3>
                     <p class="mb-0 text-secondary">Montante ainda a receber.</p>
                 </div>
             </div>
@@ -171,7 +171,7 @@
                             {% for faixa, valor in carteira.inadimplencia_por_faixa.items %}
                                 <tr>
                                     <td>{{ faixa }}</td>
-                                    <td>R$ {{ valor|floatformat:2 }}</td>
+                                    <td>R$ {{ valor|floatformat:2|intcomma }}</td>
                                 </tr>
                             {% empty %}
                                 <tr><td colspan="2" class="text-center text-muted">Nenhum atraso registrado.</td></tr>
@@ -201,8 +201,8 @@
                             {% for corretor in carteira.inadimplencia_por_corretor %}
                                 <tr>
                                     <td>{{ corretor.corretor }}</td>
-                                    <td>R$ {{ corretor.total_carteira|floatformat:2 }}</td>
-                                    <td>R$ {{ corretor.valor_inadimplente|floatformat:2 }}</td>
+                                    <td>R$ {{ corretor.total_carteira|floatformat:2|intcomma }}</td>
+                                    <td>R$ {{ corretor.valor_inadimplente|floatformat:2|intcomma }}</td>
                                     <td>{{ corretor.taxa|floatformat:2 }}%</td>
                                 </tr>
                             {% empty %}
@@ -227,7 +227,7 @@
             <div class="card card-kpi h-100">
                 <div class="card-body">
                     <p class="text-uppercase text-muted small mb-1">Custo Total de Compras</p>
-                    <h3 class="fw-bold mb-2">R$ {{ compras.custo_total|floatformat:2 }}</h3>
+                    <h3 class="fw-bold mb-2">R$ {{ compras.custo_total|floatformat:2|intcomma }}</h3>
                     <p class="mb-0 text-secondary">Investimentos realizados em materiais, serviços e insumos.</p>
                 </div>
             </div>
@@ -248,7 +248,7 @@
                             {% for item in compras.custo_por_empreendimento %}
                                 <tr>
                                     <td>{{ item.empreendimento__nome }}</td>
-                                    <td>R$ {{ item.total|floatformat:2 }}</td>
+                                    <td>R$ {{ item.total|floatformat:2|intcomma }}</td>
                                 </tr>
                             {% empty %}
                                 <tr><td colspan="2" class="text-center text-muted">Nenhum pedido registrado.</td></tr>
@@ -286,7 +286,7 @@
                             {% for fornecedor in compras.supplier_share %}
                                 <tr>
                                     <td>{{ fornecedor.fornecedor }}</td>
-                                    <td>R$ {{ fornecedor.valor|floatformat:2 }}</td>
+                                    <td>R$ {{ fornecedor.valor|floatformat:2|intcomma }}</td>
                                     <td>{{ fornecedor.percentual|floatformat:2 }}%</td>
                                 </tr>
                             {% empty %}
@@ -325,9 +325,9 @@
                             {% for item in estrategicos.planejado_vs_realizado %}
                                 <tr class="{% if item.variacao > 0 %}table-danger{% elif item.variacao < 0 %}table-success{% endif %}">
                                     <td>{{ item.empreendimento__nome }}</td>
-                                    <td>R$ {{ item.custo_planejado|floatformat:2 }}</td>
-                                    <td>R$ {{ item.custo_real|floatformat:2 }}</td>
-                                    <td>R$ {{ item.variacao|floatformat:2 }}</td>
+                                    <td>R$ {{ item.custo_planejado|floatformat:2|intcomma }}</td>
+                                    <td>R$ {{ item.custo_real|floatformat:2|intcomma }}</td>
+                                    <td>R$ {{ item.variacao|floatformat:2|intcomma }}</td>
                                 </tr>
                             {% empty %}
                                 <tr><td colspan="4" class="text-center text-muted">Nenhum planejamento cadastrado.</td></tr>
@@ -356,9 +356,9 @@
                             {% for margem in estrategicos.margem_por_empreendimento %}
                                 <tr class="{% if margem.margem < 0 %}table-danger{% endif %}">
                                     <td>{{ margem.empreendimento }}</td>
-                                    <td>R$ {{ margem.vendas|floatformat:2 }}</td>
-                                    <td>R$ {{ margem.custos|floatformat:2 }}</td>
-                                    <td>R$ {{ margem.margem|floatformat:2 }}</td>
+                                    <td>R$ {{ margem.vendas|floatformat:2|intcomma }}</td>
+                                    <td>R$ {{ margem.custos|floatformat:2|intcomma }}</td>
+                                    <td>R$ {{ margem.margem|floatformat:2|intcomma }}</td>
                                 </tr>
                             {% empty %}
                                 <tr><td colspan="4" class="text-center text-muted">Nenhuma margem calculada.</td></tr>
