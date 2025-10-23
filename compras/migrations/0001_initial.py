@@ -70,7 +70,7 @@ class Migration(migrations.Migration):
                         max_length=20,
                     ),
                 ),
-                ("valor_total", models.DecimalField(decimal_places=2, max_digits=12)),
+                ("valor_total", models.DecimalField(decimal_places=2, max_digits=14)),
                 (
                     "empreendimento",
                     models.ForeignKey(
@@ -112,7 +112,7 @@ class Migration(migrations.Migration):
                 ("quantidade", models.PositiveIntegerField(default=1)),
                 (
                     "custo_unitario",
-                    models.DecimalField(decimal_places=2, max_digits=12),
+                    models.DecimalField(decimal_places=2, max_digits=14),
                 ),
                 (
                     "pedido",

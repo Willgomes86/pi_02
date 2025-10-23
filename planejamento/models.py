@@ -30,8 +30,8 @@ class TarefaPlanejada(TimeStampedModel):
     data_inicio_prevista = models.DateField()
     data_fim_prevista = models.DateField()
     data_fim_real = models.DateField(null=True, blank=True)
-    custo_planejado = models.DecimalField(max_digits=12, decimal_places=2)
-    custo_real = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    custo_planejado = models.DecimalField(max_digits=14, decimal_places=2)
+    custo_real = models.DecimalField(max_digits=14, decimal_places=2, default=0)
 
     class Meta:
         verbose_name = "Tarefa Planejada"

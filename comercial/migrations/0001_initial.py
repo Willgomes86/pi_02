@@ -79,7 +79,7 @@ class Migration(migrations.Migration):
                 ("unidades_vendidas", models.PositiveIntegerField(default=1)),
                 (
                     "valor_contrato",
-                    models.DecimalField(decimal_places=2, max_digits=12),
+                    models.DecimalField(decimal_places=2, max_digits=14),
                 ),
                 (
                     "status",

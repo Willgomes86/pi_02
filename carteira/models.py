@@ -16,9 +16,9 @@ class Recebivel(TimeStampedModel):
         "comercial.Venda", on_delete=models.CASCADE, related_name="parcelas"
     )
     data_vencimento = models.DateField()
-    valor = models.DecimalField(max_digits=12, decimal_places=2)
+    valor = models.DecimalField(max_digits=14, decimal_places=2)
     data_pagamento = models.DateField(null=True, blank=True)
-    valor_pago = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    valor_pago = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     status = models.CharField(max_length=15, choices=Status.choices, default=Status.ABERTO)
 
     class Meta:

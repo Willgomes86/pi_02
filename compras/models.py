@@ -38,7 +38,7 @@ class PedidoCompra(TimeStampedModel):
     )
     data_pedido = models.DateField()
     categoria = models.CharField(max_length=20, choices=CATEGORIAS)
-    valor_total = models.DecimalField(max_digits=12, decimal_places=2)
+    valor_total = models.DecimalField(max_digits=14, decimal_places=2)
 
     class Meta:
         verbose_name = "Pedido de Compra"
@@ -59,7 +59,7 @@ class ItemCompra(TimeStampedModel):
     )
     descricao = models.CharField(max_length=200)
     quantidade = models.PositiveIntegerField(default=1)
-    custo_unitario = models.DecimalField(max_digits=12, decimal_places=2)
+    custo_unitario = models.DecimalField(max_digits=14, decimal_places=2)
 
     class Meta:
         verbose_name = "Item de Compra"

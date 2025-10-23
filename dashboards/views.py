@@ -165,7 +165,7 @@ def dashboard_overview(request):
     inadimplencia_por_faixa = {chave: valor for chave, valor in faixas.items() if valor}
 
     saldo_expression = ExpressionWrapper(
-        F("valor") - F("valor_pago"), output_field=DecimalField(max_digits=12, decimal_places=2)
+        F("valor") - F("valor_pago"), output_field=DecimalField(max_digits=14, decimal_places=2)
     )
 
     carteira_por_corretor = (

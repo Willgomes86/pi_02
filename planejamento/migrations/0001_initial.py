@@ -55,11 +55,11 @@ class Migration(migrations.Migration):
                 ("data_fim_real", models.DateField(blank=True, null=True)),
                 (
                     "custo_planejado",
-                    models.DecimalField(decimal_places=2, max_digits=12),
+                    models.DecimalField(decimal_places=2, max_digits=14),
                 ),
                 (
                     "custo_real",
-                    models.DecimalField(decimal_places=2, default=0, max_digits=12),
+                    models.DecimalField(decimal_places=2, default=0, max_digits=14),
                 ),
                 (
                     "categoria",

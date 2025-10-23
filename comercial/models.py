@@ -47,7 +47,7 @@ class Venda(TimeStampedModel):
     cliente_nome = models.CharField(max_length=120)
     data_venda = models.DateField()
     unidades_vendidas = models.PositiveIntegerField(default=1)
-    valor_contrato = models.DecimalField(max_digits=12, decimal_places=2)
+    valor_contrato = models.DecimalField(max_digits=14, decimal_places=2)
     status = models.CharField(max_length=15, choices=Status.choices, default=Status.ATIVA)
 
     class Meta:

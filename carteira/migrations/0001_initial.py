@@ -28,11 +28,11 @@ class Migration(migrations.Migration):
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 ("data_vencimento", models.DateField()),
-                ("valor", models.DecimalField(decimal_places=2, max_digits=12)),
+                ("valor", models.DecimalField(decimal_places=2, max_digits=14)),
                 ("data_pagamento", models.DateField(blank=True, null=True)),
                 (
                     "valor_pago",
-                    models.DecimalField(decimal_places=2, default=0, max_digits=12),
+                    models.DecimalField(decimal_places=2, default=0, max_digits=14),
                 ),
                 (
                     "status",
