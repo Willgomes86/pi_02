@@ -1,10 +1,387 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <title>Title</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard</title>
+    <style>
+        :root {
+            color-scheme: light;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #f4f6fb;
+            color: #1f2a44;
+        }
+
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+
+        header {
+            background-color: #0b3d91;
+            color: #ffffff;
+            padding: 1.5rem 2rem;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 1.75rem;
+        }
+
+        main[role="main"] {
+            display: block;
+            padding: 2rem;
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        .filters {
+            display: grid;
+            gap: 1rem;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            margin-bottom: 2rem;
+            padding: 1.5rem;
+            background-color: #ffffff;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 18px rgba(15, 23, 42, 0.08);
+        }
+
+        .filters label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 0.35rem;
+        }
+
+        .filters select,
+        .filters input,
+        .filters button {
+            width: 100%;
+            padding: 0.6rem 0.75rem;
+            border-radius: 0.5rem;
+            border: 1px solid #b8c3d6;
+            font-size: 1rem;
+            background-color: #ffffff;
+            color: inherit;
+        }
+
+        .filters button {
+            background-color: #0b3d91;
+            color: #ffffff;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background-color 0.2s ease, transform 0.1s ease;
+        }
+
+        .filters button:hover {
+            background-color: #0d4bb8;
+        }
+
+        .filters button:active {
+            transform: scale(0.98);
+        }
+
+        .filters select:focus,
+        .filters input:focus,
+        .filters button:focus,
+        .filters button:focus-visible {
+            outline: 3px solid #ffbf47;
+            outline-offset: 2px;
+        }
+
+        .kpis {
+            display: grid;
+            gap: 1.5rem;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            margin-bottom: 2.5rem;
+        }
+
+        .kpi-card {
+            background-color: #ffffff;
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            box-shadow: 0 4px 18px rgba(15, 23, 42, 0.08);
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .kpi-card h2 {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #4a5a78;
+            margin: 0;
+        }
+
+        .kpi-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #0b3d91;
+        }
+
+        .results {
+            background-color: #ffffff;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 18px rgba(15, 23, 42, 0.08);
+            padding: 1.5rem;
+        }
+
+        .results h2 {
+            margin-top: 0;
+            font-size: 1.25rem;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+
+        th,
+        td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid #dde4f0;
+        }
+
+        th {
+            background-color: #eff3fb;
+            font-weight: 600;
+        }
+
+        tr:hover {
+            background-color: #f7f9ff;
+        }
+
+        caption {
+            caption-side: bottom;
+            text-align: left;
+            font-size: 0.9rem;
+            color: #4a5a78;
+            margin-top: 0.5rem;
+        }
+
+        @media (max-width: 640px) {
+            main[role="main"] {
+                padding: 1.5rem;
+            }
+
+            .filters {
+                grid-template-columns: 1fr;
+            }
+
+            table,
+            thead,
+            tbody,
+            th,
+            td,
+            tr {
+                display: block;
+            }
+
+            thead tr {
+                display: none;
+            }
+
+            tbody tr {
+                margin-bottom: 1rem;
+                border: 1px solid #dde4f0;
+                border-radius: 0.5rem;
+                padding: 0.75rem;
+            }
+
+            td {
+                border: none;
+                position: relative;
+                padding-left: 45%;
+            }
+
+            td::before {
+                content: attr(data-label);
+                position: absolute;
+                left: 0.75rem;
+                width: 40%;
+                font-weight: 600;
+                color: #4a5a78;
+            }
+        }
+    </style>
 </head>
 <body>
+<header>
+    <h1>Dashboard Comercial</h1>
+</header>
+<main role="main">
+    <form id="filtros" class="filters">
+        <div>
+            <label for="f-emp">Empreendimento</label>
+            <select id="f-emp" name="empreendimento">
+                <option value="">Todos</option>
+            </select>
+        </div>
+        <div>
+            <label for="f-de">De</label>
+            <input type="date" id="f-de" name="de">
+        </div>
+        <div>
+            <label for="f-ate">Até</label>
+            <input type="date" id="f-ate" name="ate">
+        </div>
+        <div>
+            <label for="btn-filtrar" class="sr-only">Aplicar filtros</label>
+            <button id="btn-filtrar" type="submit">Filtrar</button>
+        </div>
+    </form>
 
+    <section class="kpis" aria-label="Indicadores de desempenho">
+        <article class="kpi-card">
+            <h2>Total de Vendas</h2>
+            <div id="kpi-total" class="kpi-value" aria-live="polite">R$ 0,00</div>
+        </article>
+        <article class="kpi-card">
+            <h2>Ticket Médio</h2>
+            <div id="kpi-ticket" class="kpi-value" aria-live="polite">R$ 0,00</div>
+        </article>
+        <article class="kpi-card">
+            <h2>Carteira em Atraso</h2>
+            <div id="kpi-atraso" class="kpi-value" aria-live="polite">R$ 0,00</div>
+        </article>
+    </section>
+
+    <section class="results" aria-label="Lista de vendas">
+        <h2>Vendas</h2>
+        <div id="vendas-feedback" aria-live="polite"></div>
+        <table aria-describedby="vendas-feedback">
+            <thead>
+            <tr>
+                <th scope="col">Empreendimento</th>
+                <th scope="col">Cliente</th>
+                <th scope="col">Data</th>
+                <th scope="col">Valor</th>
+            </tr>
+            </thead>
+            <tbody id="vendas-body"></tbody>
+        </table>
+        <caption>Dados carregados conforme filtros aplicados.</caption>
+    </section>
+</main>
+
+<script>
+    const brl = new Intl.NumberFormat('pt-BR', {style: 'currency', currency: 'BRL'});
+
+    async function loadKPIs() {
+        try {
+            const params = buildFilters();
+            const query = params.toString();
+            const url = query ? `/api/kpis/?${query}` : '/api/kpis/';
+            const r = await fetch(url);
+            if (!r.ok) {
+                throw new Error('Não foi possível carregar os KPIs.');
+            }
+            const j = await r.json();
+            document.getElementById('kpi-total').textContent = brl.format(j.total_vendas || 0);
+            document.getElementById('kpi-ticket').textContent = brl.format(j.ticket_medio || 0);
+            document.getElementById('kpi-atraso').textContent = brl.format(j.carteira_em_atraso || 0);
+        } catch (error) {
+            document.getElementById('kpi-total').textContent = 'R$ 0,00';
+            document.getElementById('kpi-ticket').textContent = 'R$ 0,00';
+            document.getElementById('kpi-atraso').textContent = 'R$ 0,00';
+            console.error(error);
+        }
+    }
+
+    function buildFilters() {
+        const params = new URLSearchParams();
+        const emp = document.getElementById('f-emp').value;
+        const de = document.getElementById('f-de').value;
+        const ate = document.getElementById('f-ate').value;
+        if (emp) params.set('empreendimento', emp);
+        if (de) params.set('de', de);
+        if (ate) params.set('ate', ate);
+        return params;
+    }
+
+    function renderVendas(vendas) {
+        const tbody = document.getElementById('vendas-body');
+        const feedback = document.getElementById('vendas-feedback');
+        tbody.innerHTML = '';
+
+        if (!Array.isArray(vendas) || vendas.length === 0) {
+            feedback.textContent = 'Nenhum registro encontrado para os filtros selecionados.';
+            return;
+        }
+
+        feedback.textContent = `Foram encontradas ${vendas.length} vendas.`;
+
+        vendas.forEach(venda => {
+            const tr = document.createElement('tr');
+
+            const tdEmp = document.createElement('td');
+            tdEmp.dataset.label = 'Empreendimento';
+            tdEmp.textContent = venda.empreendimento || '—';
+
+            const tdCliente = document.createElement('td');
+            tdCliente.dataset.label = 'Cliente';
+            tdCliente.textContent = venda.cliente || '—';
+
+            const tdData = document.createElement('td');
+            tdData.dataset.label = 'Data';
+            tdData.textContent = venda.data ? new Date(venda.data).toLocaleDateString('pt-BR') : '—';
+
+            const tdValor = document.createElement('td');
+            tdValor.dataset.label = 'Valor';
+            tdValor.textContent = brl.format(venda.valor || 0);
+
+            tr.append(tdEmp, tdCliente, tdData, tdValor);
+            tbody.appendChild(tr);
+        });
+    }
+
+    async function loadVendas() {
+        const params = buildFilters();
+        const feedback = document.getElementById('vendas-feedback');
+        feedback.textContent = 'Carregando...';
+
+        try {
+            const query = params.toString();
+            const url = query ? `/api/vendas/?${query}` : '/api/vendas/';
+            const r = await fetch(url);
+            if (!r.ok) {
+                throw new Error('Erro ao carregar as vendas.');
+            }
+            const j = await r.json();
+            renderVendas(j);
+        } catch (error) {
+            console.error(error);
+            feedback.textContent = 'Não foi possível carregar as vendas no momento.';
+            document.getElementById('vendas-body').innerHTML = '';
+        }
+    }
+
+    document.getElementById('filtros').addEventListener('submit', (event) => {
+        event.preventDefault();
+        loadKPIs();
+        loadVendas();
+    });
+
+    loadKPIs();
+    loadVendas();
+</script>
 </body>
 </html>
+
