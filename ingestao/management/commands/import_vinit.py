@@ -1,7 +1,7 @@
 import math
 import re
 from datetime import datetime, date
-from decimal import Decimal
+from decimal import Decimal, ROUND_DOWN, getcontext
 from pathlib import Path
 from typing import Optional
 
@@ -55,6 +55,36 @@ def safe_decimal(value, default="0"):
         return Decimal(default)
     d = to_decimal_pt(s)
     return d if d is not None else Decimal(default)
+
+
+getcontext().prec = 28  # precisão confortável
+
+
+def max_for_decimalfield(model, field_name, default=Decimal("9999999999.99")):
+    try:
+        f = model._meta.get_field(field_name)
+        md = getattr(f, "max_digits", None)
+        dp = getattr(f, "decimal_places", None)
+        if md and dp is not None:
+            # limite: 10^(md-dp) - 10^-dp
+            inteiro = md - dp
+            cap = (Decimal(10) ** inteiro) - (Decimal(1) / (Decimal(10) ** dp))
+            return cap.quantize(Decimal(1) / (Decimal(10) ** dp))
+    except Exception:
+        pass
+    return default
+
+
+def clamp_decimal(value: Decimal, cap: Decimal, decimal_places: int = 2) -> Decimal:
+    if value is None:
+        return Decimal("0").quantize(Decimal(1) / (Decimal(10) ** decimal_places))
+    v = Decimal(value)
+    if v > cap:
+        v = cap
+    if v < -cap:
+        v = -cap
+    q = Decimal(1) / (Decimal(10) ** decimal_places)
+    return v.quantize(q, rounding=ROUND_DOWN)
 
 
 def normalize_date(value):
@@ -351,6 +381,12 @@ def import_compras(df: pd.DataFrame, filename: str, debug=False):
 
     total = Decimal("0")
     item_fields = {f.name for f in ItemCompra._meta.get_fields() if hasattr(f, "attname")}
+    try:
+        item_field = ItemCompra._meta.get_field("custo_unitario")
+        item_dp = getattr(item_field, "decimal_places", 2)
+    except Exception:
+        item_dp = 2
+    item_cap = max_for_decimalfield(ItemCompra, "custo_unitario")
     for _, row in df.iterrows():
         desc = safe_str(row.get(col_insumo))
         if not desc or desc.lower() in {"descricao", "descrição", "produto", "insumo"}:
@@ -365,6 +401,7 @@ def import_compras(df: pd.DataFrame, filename: str, debug=False):
             qtde = 1
 
         custo_unit = safe_decimal(row.get(col_val_unit))
+        custo_unit = clamp_decimal(custo_unit, item_cap, item_dp)
         total += custo_unit * qtde
 
         item_lookup = {"pedido": pedido}
@@ -388,7 +425,10 @@ def import_compras(df: pd.DataFrame, filename: str, debug=False):
                 item.save(update_fields=["quantidade"])
 
     if "valor_total" in pedido_fields:
-        pedido.valor_total = total
+        vt_field = PedidoCompra._meta.get_field("valor_total")
+        vt_dp = getattr(vt_field, "decimal_places", 2)
+        vt_cap = max_for_decimalfield(PedidoCompra, "valor_total")
+        pedido.valor_total = clamp_decimal(total, vt_cap, vt_dp)
         pedido.save(update_fields=["valor_total"])
 
 
@@ -408,6 +448,13 @@ def import_comercial(df: pd.DataFrame, filename: str, debug=False):
     col_data = best_column_match(columns, ["Data Venda", "Data", "Emissão"])
     col_unid = best_column_match(columns, ["Unidades", "Qtde", "Quantidade"])
 
+    try:
+        vc_field = Venda._meta.get_field("valor_contrato")
+        vc_dp = getattr(vc_field, "decimal_places", 2)
+    except Exception:
+        vc_dp = 2
+    vc_cap = max_for_decimalfield(Venda, "valor_contrato")
+
     for _, row in df.iterrows():
         emp_nome = safe_str(row.get(col_emp)) if col_emp else parse_emp_name(df)
         if not emp_nome or emp_nome.lower() in {"empreendimento"}:
@@ -418,6 +465,7 @@ def import_comercial(df: pd.DataFrame, filename: str, debug=False):
         )
         cliente = safe_str(row.get(col_cliente), "Cliente")
         valor = safe_decimal(row.get(col_valor))
+        valor = clamp_decimal(valor, vc_cap, vc_dp)
         data = fallback_today(normalize_date(row.get(col_data)))
 
         unidades_raw = row.get(col_unid) if col_unid else 1
@@ -480,6 +528,35 @@ def import_carteira(df: pd.DataFrame, filename: str):
     fld_valor_pg = pick_field(["valor_pago", "pago", "valor_recebido"])
     fld_status   = pick_field(["status", "situacao"])
 
+    if fld_valor:
+        try:
+            rv_field = Recebivel._meta.get_field(fld_valor)
+            rv_dp = getattr(rv_field, "decimal_places", 2)
+        except Exception:
+            rv_dp = 2
+        rv_cap = max_for_decimalfield(Recebivel, fld_valor)
+    else:
+        rv_dp = 2
+        rv_cap = Decimal("0")
+
+    if fld_valor_pg:
+        try:
+            pg_field = Recebivel._meta.get_field(fld_valor_pg)
+            pg_dp = getattr(pg_field, "decimal_places", 2)
+        except Exception:
+            pg_dp = 2
+        pg_cap = max_for_decimalfield(Recebivel, fld_valor_pg)
+    else:
+        pg_dp = 2
+        pg_cap = Decimal("0")
+
+    try:
+        venda_field = Venda._meta.get_field("valor_contrato")
+        venda_dp = getattr(venda_field, "decimal_places", 2)
+    except Exception:
+        venda_dp = 2
+    venda_cap = max_for_decimalfield(Venda, "valor_contrato")
+
     for _, row in df.iterrows():
         emp_nome = safe_str(row.get(col_emp)) if col_emp else parse_emp_name(df)
         if not emp_nome:
@@ -488,9 +565,13 @@ def import_carteira(df: pd.DataFrame, filename: str):
 
         venc = normalize_date(row.get(col_venc))
         data_venda = fallback_today(venc)                 # garante NOT NULL em Venda
-        valor_parcela = safe_decimal(row.get(col_valor))  # sempre Decimal
+        valor_parcela_raw = safe_decimal(row.get(col_valor))  # sempre Decimal
+        valor_parcela = valor_parcela_raw
+        if fld_valor:
+            valor_parcela = clamp_decimal(valor_parcela_raw, rv_cap, rv_dp)
 
         # garante corretor (NOT NULL)
+        valor_contrato = clamp_decimal(valor_parcela_raw, venda_cap, venda_dp)
         venda, _ = Venda.objects.update_or_create(
             empreendimento=emp,
             cliente_nome="Cliente",
@@ -498,7 +579,7 @@ def import_carteira(df: pd.DataFrame, filename: str):
             defaults={
                 "corretor": get_default_corretor(),
                 "unidades_vendidas": 1,
-                "valor_contrato": valor_parcela,
+                "valor_contrato": valor_contrato,
             },
         )
 
@@ -514,9 +595,11 @@ def import_carteira(df: pd.DataFrame, filename: str):
         if fld_valor:
             receb_defaults[fld_valor] = valor_parcela
         if fld_valor_pg:
-            receb_defaults[fld_valor_pg] = (
-                safe_decimal(row.get(col_pago)) if col_pago else Decimal("0")
-            )
+            if col_pago:
+                valor_pago = clamp_decimal(safe_decimal(row.get(col_pago)), pg_cap, pg_dp)
+            else:
+                valor_pago = clamp_decimal(Decimal("0"), pg_cap, pg_dp)
+            receb_defaults[fld_valor_pg] = valor_pago
         if fld_status:
             receb_defaults[fld_status] = safe_str(row.get(col_status), "aberto").lower()
 
@@ -682,6 +765,17 @@ class Command(BaseCommand):
                         pass
 
                 try:
+                    sheet_lc = sheet.lower()
+                    tipo_by_sheet = None
+                    if "compras" in sheet_lc:
+                        tipo_by_sheet = "compras"
+                    elif "comercial" in sheet_lc:
+                        tipo_by_sheet = "comercial"
+                    elif "carteira" in sheet_lc:
+                        tipo_by_sheet = "carteira"
+                    elif "planejamento" in sheet_lc:
+                        tipo_by_sheet = "planejamento"
+
                     fname = f.name.casefold()
 
                     # heurística de tipo usando o NOME do arquivo:
@@ -695,7 +789,7 @@ class Command(BaseCommand):
                     elif "planejamento" in fname:
                         forced_by_name = "planejamento"
 
-                    tipo = force or forced_by_name
+                    tipo = force or tipo_by_sheet or forced_by_name
                     if not tipo:
                         # fallback pelas heurísticas de conteúdo, se o nome não ajudou
                         if looks_like_compras(df):
