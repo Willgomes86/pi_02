@@ -82,26 +82,37 @@ TEMPLATES = [
 WSGI_APPLICATION = 'setup.wsgi.application'
 
 
-# Database (PostgreSQL only)
+# Database configuration
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DB_NAME = os.getenv("DB_NAME")
-if not DB_NAME:
-    raise RuntimeError(
-        "DB_NAME não definido. Configure o .env para usar PostgreSQL. "
-        "Este projeto não suporta SQLite."
-    )
+DB_ENGINE = os.getenv("DB_ENGINE", "django.db.backends.postgresql")
+
+if DB_ENGINE == "django.db.backends.sqlite3":
+    DB_NAME = os.getenv("DB_NAME", str(BASE_DIR / "db.sqlite3"))
+else:
+    DB_NAME = os.getenv("DB_NAME")
+    if not DB_NAME:
+        raise RuntimeError(
+            "DB_NAME não definido. Configure o .env para usar PostgreSQL. "
+            "Este projeto não suporta SQLite."
+        )
 
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql",
+        "ENGINE": DB_ENGINE,
         "NAME": DB_NAME,
-        "USER": os.getenv("DB_USER", ""),
-        "PASSWORD": os.getenv("DB_PASSWORD", ""),
-        "HOST": os.getenv("DB_HOST", "localhost"),
-        "PORT": os.getenv("DB_PORT", "5432"),
     }
 }
+
+if DB_ENGINE != "django.db.backends.sqlite3":
+    DATABASES["default"].update(
+        {
+            "USER": os.getenv("DB_USER", ""),
+            "PASSWORD": os.getenv("DB_PASSWORD", ""),
+            "HOST": os.getenv("DB_HOST", "localhost"),
+            "PORT": os.getenv("DB_PORT", "5432"),
+        }
+    )
 
 
 # Password validation
@@ -148,6 +159,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 LOGIN_URL = 'usuarios:login'
 LOGIN_REDIRECT_URL = 'dashboards:overview'
 LOGOUT_REDIRECT_URL = 'usuarios:login'
+DASHBOARD_REQUIRE_LOGIN = config("DASHBOARD_REQUIRE_LOGIN", default=False, cast=bool)
 
 REST_FRAMEWORK = {
     "DEFAULT_FILTER_BACKENDS": [
