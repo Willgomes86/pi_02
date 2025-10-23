@@ -327,18 +327,27 @@ def import_compras(df: pd.DataFrame, filename: str, debug=False):
                 break
     data_pedido = fallback_today(default_dt)
 
-    pedido_fields = {f.name for f in PedidoCompra._meta.get_fields() if hasattr(f, "attname")}
-    pedido_kwargs = {}
+    pedido_fields = {
+        f.name for f in PedidoCompra._meta.get_fields() if hasattr(f, "attname")
+    }
+    pedido_lookup: dict[str, object] = {}
     if "empreendimento" in pedido_fields:
-        pedido_kwargs["empreendimento"] = emp
+        pedido_lookup["empreendimento"] = emp
     if "fornecedor" in pedido_fields:
-        pedido_kwargs["fornecedor"] = fornecedor_default
+        pedido_lookup["fornecedor"] = fornecedor_default
     if "data_pedido" in pedido_fields:
-        pedido_kwargs["data_pedido"] = data_pedido
-    if "valor_total" in pedido_fields:
-        pedido_kwargs["valor_total"] = Decimal("0")
+        pedido_lookup["data_pedido"] = data_pedido
+    if "categoria" in pedido_fields:
+        pedido_lookup["categoria"] = PedidoCompra.CATEGORIAS[-1][0]
 
-    pedido = PedidoCompra.objects.create(**pedido_kwargs)
+    pedido_defaults: dict[str, object] = {}
+    if "valor_total" in pedido_fields:
+        pedido_defaults["valor_total"] = Decimal("0")
+
+    pedido, _ = PedidoCompra.objects.update_or_create(
+        defaults=pedido_defaults,
+        **pedido_lookup,
+    )
 
     total = Decimal("0")
     item_fields = {f.name for f in ItemCompra._meta.get_fields() if hasattr(f, "attname")}
@@ -358,14 +367,25 @@ def import_compras(df: pd.DataFrame, filename: str, debug=False):
         custo_unit = safe_decimal(row.get(col_val_unit))
         total += custo_unit * qtde
 
-        item_kwargs = {
-            "pedido": pedido,
-            "descricao": desc,
-            "quantidade": qtde,
-            "custo_unitario": custo_unit,
-        }
-        item_kwargs = {k: v for k, v in item_kwargs.items() if k in item_fields}
-        ItemCompra.objects.create(**item_kwargs)
+        item_lookup = {"pedido": pedido}
+        if "descricao" in item_fields:
+            item_lookup["descricao"] = desc
+        if "custo_unitario" in item_fields:
+            item_lookup["custo_unitario"] = custo_unit
+
+        item_defaults = {}
+        if "quantidade" in item_fields:
+            item_defaults["quantidade"] = qtde
+
+        item, created = ItemCompra.objects.get_or_create(
+            defaults=item_defaults,
+            **item_lookup,
+        )
+
+        if not created and "quantidade" in item_fields:
+            if qtde > item.quantidade:
+                item.quantidade = qtde
+                item.save(update_fields=["quantidade"])
 
     if "valor_total" in pedido_fields:
         pedido.valor_total = total
@@ -415,14 +435,17 @@ def import_comercial(df: pd.DataFrame, filename: str, debug=False):
             else Corretor.objects.get_or_create(nome=corretor_nome)[0]
         )
 
-        Venda.objects.create(
-            empreendimento=emp,
-            cliente_nome=cliente or "Cliente",
-            corretor=corretor,
-            data_venda=data,
-            unidades_vendidas=unidades,
-            valor_contrato=valor,
-        )
+        key = {
+            "empreendimento": emp,
+            "cliente_nome": cliente or "Cliente",
+            "data_venda": data,
+        }
+        defaults = {
+            "corretor": corretor or get_default_corretor(),
+            "unidades_vendidas": unidades,
+            "valor_contrato": valor,
+        }
+        Venda.objects.update_or_create(**key, defaults=defaults)
 
 
 @transaction.atomic
@@ -468,30 +491,39 @@ def import_carteira(df: pd.DataFrame, filename: str):
         valor_parcela = safe_decimal(row.get(col_valor))  # sempre Decimal
 
         # garante corretor (NOT NULL)
-        venda = Venda.objects.create(
+        venda, _ = Venda.objects.update_or_create(
             empreendimento=emp,
             cliente_nome="Cliente",
-            corretor=get_default_corretor(),
             data_venda=data_venda,
-            unidades_vendidas=1,
-            valor_contrato=valor_parcela,
+            defaults={
+                "corretor": get_default_corretor(),
+                "unidades_vendidas": 1,
+                "valor_contrato": valor_parcela,
+            },
         )
 
         # monta kwargs dinamicamente só com campos que existem no model
-        recebi_kwargs = {"venda": venda}
+        receb_lookup = {"venda": venda}
 
         if fld_numero:
-            recebi_kwargs[fld_numero] = safe_str(row.get(col_parcela))
+            receb_lookup[fld_numero] = safe_str(row.get(col_parcela))
         if fld_venc:
-            recebi_kwargs[fld_venc] = venc
-        if fld_valor:
-            recebi_kwargs[fld_valor] = valor_parcela
-        if fld_valor_pg:
-            recebi_kwargs[fld_valor_pg] = safe_decimal(row.get(col_pago)) if col_pago else Decimal("0")
-        if fld_status:
-            recebi_kwargs[fld_status] = (safe_str(row.get(col_status), "aberto")).lower()
+            receb_lookup[fld_venc] = venc or data_venda
 
-        Recebivel.objects.create(**recebi_kwargs)
+        receb_defaults = {}
+        if fld_valor:
+            receb_defaults[fld_valor] = valor_parcela
+        if fld_valor_pg:
+            receb_defaults[fld_valor_pg] = (
+                safe_decimal(row.get(col_pago)) if col_pago else Decimal("0")
+            )
+        if fld_status:
+            receb_defaults[fld_status] = safe_str(row.get(col_status), "aberto").lower()
+
+        Recebivel.objects.update_or_create(
+            defaults=receb_defaults,
+            **receb_lookup,
+        )
 
 
 @transaction.atomic
@@ -585,6 +617,11 @@ class Command(BaseCommand):
             action="store_true",
             help="Mostra colunas detectadas e salva amostras",
         )
+        parser.add_argument(
+            "--clear",
+            action="store_true",
+            help="Limpa as tabelas antes de importar",
+        )
 
     def handle(self, *args, **opts):
         path = Path(opts["path"]).expanduser().resolve()
@@ -593,6 +630,18 @@ class Command(BaseCommand):
 
         if not path.exists() or not path.is_dir():
             raise CommandError(f"Pasta inválida: {path}")
+
+        if opts.get("clear"):
+            self.stdout.write(self.style.WARNING("Limpando tabelas..."))
+            Recebivel.objects.all().delete()
+            ItemCompra.objects.all().delete()
+            PedidoCompra.objects.all().delete()
+            Fornecedor.objects.all().delete()
+            Venda.objects.all().delete()
+            Corretor.objects.all().delete()
+            TarefaPlanejada.objects.all().delete()
+            CategoriaPlanejamento.objects.all().delete()
+            Empreendimento.objects.all().delete()
 
         files = list(path.glob("*.xlsx"))
         if not files:
