@@ -22,7 +22,7 @@ DEFAULT_CORRETOR = "Corretor Desconhecido"
 
 
 def safe_str(x, default=""):
-    s = clean_str(x)
+    s = (str(x).strip() if x is not None else "").strip()
     if not s or s.lower() in {"nan", "none", "null"}:
         return default
     return s
@@ -42,11 +42,9 @@ def to_decimal_pt(value):
     except Exception:
         return None
 
-
 def safe_decimal(value, default="0"):
     if value is None:
         return Decimal(default)
-    # pandas NaN (float) ou string 'NaN'
     try:
         if isinstance(value, float) and math.isnan(value):
             return Decimal(default)
@@ -60,13 +58,8 @@ def safe_decimal(value, default="0"):
 
 
 def normalize_date(value):
-    """
-    Aceita pandas.Timestamp, datetime, date, string variada, NaT/NaN/None.
-    Retorna date ou None.
-    """
     if value is None:
         return None
-    # pandas Timestamp
     if hasattr(value, "to_pydatetime"):
         try:
             return value.to_pydatetime().date()
@@ -79,31 +72,26 @@ def normalize_date(value):
         return value.date()
     if isinstance(value, date):
         return value
-    # strings
     s = str(value).strip()
     if not s or s.lower() in {"nan", "nat", "none", "null"}:
         return None
-    # tenta vários formatos
     for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d"):
         try:
             return datetime.strptime(s, fmt).date()
         except Exception:
             continue
-    # último recurso: pandas.to_datetime
-    try:
-        import pandas as pd
-
-        dt = pd.to_datetime(s, errors="coerce")
-        if pd.isna(dt):
-            return None
-        return dt.to_pydatetime().date()
-    except Exception:
+    dt = pd.to_datetime(s, errors="coerce")
+    if pd.isna(dt):
         return None
+    return dt.to_pydatetime().date()
 
 
 def fallback_today(d):
-    """Se a data estiver vazia, devolve date.today()."""
     return d or date.today()
+
+
+def get_default_corretor():
+    return Corretor.objects.get_or_create(nome="Corretor Padrão")[0]
 
 
 def clean_str(s):
@@ -312,23 +300,27 @@ def import_compras(df: pd.DataFrame, filename: str, debug=False):
     columns = list(df.columns)
 
     col_fornecedor = best_column_match(columns, ["Fornecedor", "Fornecedor Nome"])
-    col_insumo     = best_column_match(columns, ["Insumo", "Descrição", "Produto", "Item"])
-    col_qtde       = best_column_match(columns, ["Qtde", "Quantidade"])
-    col_val_unit   = best_column_match(columns, ["Valor Unitário", "Valor Unit", "Preço Unit", "Preço"])
-    col_total      = best_column_match(columns, ["Total", "Valor Total"])
-    col_data_any   = best_column_match(columns, ["Data Pedido", "Data", "Emissão", "Dt Pedido"])
+    col_insumo = best_column_match(columns, ["Insumo", "Descrição", "Produto", "Item"])
+    col_qtde = best_column_match(columns, ["Qtde", "Quantidade"])
+    col_val_unit = best_column_match(columns, ["Valor Unitário", "Valor Unit", "Preço Unit", "Preço"])
+    col_total = best_column_match(columns, ["Total", "Valor Total"])
+    col_data_any = best_column_match(columns, ["Data Pedido", "Data", "Emissão", "Dt Pedido"])
 
     if not col_insumo:
         return
 
     emp_nome = parse_emp_name(df)
-    emp, _ = Empreendimento.objects.get_or_create(nome=emp_nome or "Empreendimento Desconhecido", defaults={"cidade": ""})
-
+    emp, _ = Empreendimento.objects.get_or_create(
+        nome=emp_nome or "Empreendimento Desconhecido", defaults={"cidade": ""}
+    )
     fornecedor_default, _ = Fornecedor.objects.get_or_create(nome="Fornecedor Desconhecido")
 
     default_dt = None
     if col_data_any:
-        for v in df[col_data_any].head(10).tolist():
+        colobj = df[col_data_any]
+        if isinstance(colobj, pd.DataFrame):
+            colobj = colobj.iloc[:, 0]
+        for v in colobj.head(10).tolist():
             d = normalize_date(v)
             if d:
                 default_dt = d
@@ -343,9 +335,12 @@ def import_compras(df: pd.DataFrame, filename: str, debug=False):
         pedido_kwargs["fornecedor"] = fornecedor_default
     if "data_pedido" in pedido_fields:
         pedido_kwargs["data_pedido"] = data_pedido
+    if "valor_total" in pedido_fields:
+        pedido_kwargs["valor_total"] = Decimal("0")
 
     pedido = PedidoCompra.objects.create(**pedido_kwargs)
 
+    total = Decimal("0")
     item_fields = {f.name for f in ItemCompra._meta.get_fields() if hasattr(f, "attname")}
     for _, row in df.iterrows():
         desc = safe_str(row.get(col_insumo))
@@ -354,11 +349,14 @@ def import_compras(df: pd.DataFrame, filename: str, debug=False):
 
         qtde_raw = row.get(col_qtde) if col_qtde else 1
         try:
-            qtde = int(str(qtde_raw).split(",")[0]) if qtde_raw not in (None, "", "nan") else 1
+            qtde = (
+                int(str(qtde_raw).split(",")[0]) if qtde_raw not in (None, "", "nan") else 1
+            )
         except Exception:
             qtde = 1
 
         custo_unit = safe_decimal(row.get(col_val_unit))
+        total += custo_unit * qtde
 
         item_kwargs = {
             "pedido": pedido,
@@ -368,6 +366,10 @@ def import_compras(df: pd.DataFrame, filename: str, debug=False):
         }
         item_kwargs = {k: v for k, v in item_kwargs.items() if k in item_fields}
         ItemCompra.objects.create(**item_kwargs)
+
+    if "valor_total" in pedido_fields:
+        pedido.valor_total = total
+        pedido.save(update_fields=["valor_total"])
 
 
 @transaction.atomic
@@ -379,34 +381,39 @@ def import_comercial(df: pd.DataFrame, filename: str, debug=False):
     df = normalize_columns(df)
     columns = list(df.columns)
 
-    col_emp     = best_column_match(columns, ["Empreendimento", "Obra", "Projeto"])
+    col_emp = best_column_match(columns, ["Empreendimento", "Obra", "Projeto"])
     col_cliente = best_column_match(columns, ["Cliente", "Comprador", "Proponente"])
-    col_corretor= best_column_match(columns, ["Corretor", "Vendedor"])
-    col_valor   = best_column_match(columns, ["Valor Contrato", "Valor", "Total"])
-    col_data    = best_column_match(columns, ["Data Venda", "Data", "Emissão"])
-    col_unid    = best_column_match(columns, ["Unidades", "Qtde", "Quantidade"])
+    col_corretor = best_column_match(columns, ["Corretor", "Vendedor"])
+    col_valor = best_column_match(columns, ["Valor Contrato", "Valor", "Total"])
+    col_data = best_column_match(columns, ["Data Venda", "Data", "Emissão"])
+    col_unid = best_column_match(columns, ["Unidades", "Qtde", "Quantidade"])
 
     for _, row in df.iterrows():
         emp_nome = safe_str(row.get(col_emp)) if col_emp else parse_emp_name(df)
         if not emp_nome or emp_nome.lower() in {"empreendimento"}:
             continue
 
-        emp, _ = Empreendimento.objects.get_or_create(nome=emp_nome, defaults={"cidade": ""})
-
-        cliente  = safe_str(row.get(col_cliente), "Cliente")
-        corretor_nome = safe_str(row.get(col_corretor))
+        emp, _ = Empreendimento.objects.get_or_create(
+            nome=emp_nome, defaults={"cidade": ""}
+        )
+        cliente = safe_str(row.get(col_cliente), "Cliente")
         valor = safe_decimal(row.get(col_valor))
-        data  = fallback_today(normalize_date(row.get(col_data)))
+        data = fallback_today(normalize_date(row.get(col_data)))
 
         unidades_raw = row.get(col_unid) if col_unid else 1
         try:
-            unidades = int(str(unidades_raw).split(",")[0]) if unidades_raw not in (None, "", "nan") else 1
+            unidades = (
+                int(str(unidades_raw).split(",")[0]) if unidades_raw not in (None, "", "nan") else 1
+            )
         except Exception:
             unidades = 1
 
-        corretor = None
-        if corretor_nome and corretor_nome.lower() not in {"corretor", "vendedor"}:
-            corretor, _ = Corretor.objects.get_or_create(nome=corretor_nome)
+        corretor_nome = safe_str(row.get(col_corretor))
+        corretor = (
+            get_default_corretor()
+            if not corretor_nome
+            else Corretor.objects.get_or_create(nome=corretor_nome)[0]
+        )
 
         Venda.objects.create(
             empreendimento=emp,
@@ -437,19 +444,21 @@ def import_carteira(df: pd.DataFrame, filename: str):
         emp_nome = safe_str(row.get(col_emp)) if col_emp else parse_emp_name(df)
         if not emp_nome:
             continue
-        emp, _ = Empreendimento.objects.get_or_create(nome=emp_nome, defaults={"cidade": ""})
+        emp, _ = Empreendimento.objects.get_or_create(
+            nome=emp_nome, defaults={"cidade": ""}
+        )
 
         venc = normalize_date(row.get(col_venc))
         data_venda = fallback_today(venc)
-
         valor_parcela = safe_decimal(row.get(col_valor))
 
         venda = Venda.objects.create(
             empreendimento=emp,
             cliente_nome="Cliente",
+            corretor=get_default_corretor(),
+            data_venda=data_venda,
             unidades_vendidas=1,
             valor_contrato=valor_parcela,
-            data_venda=data_venda,
         )
 
         Recebivel.objects.create(
