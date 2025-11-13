@@ -294,13 +294,15 @@ def dashboard_overview(request):
 
     employee_map = _build_placeholder_map(
         [v.get("corretor__nome") for v in vendas_por_corretor]
-        + [item.get("corretor") for item in inadimplencia_por_corretor]
+        + [item.get("corretor") for item in inadimplencia_por_corretor],
+        prefix="employee",
     )
     company_map = _build_placeholder_map(
         [v.get("empreendimento__nome") for v in vendas_por_corretor]
         + [item.get("empreendimento__nome") for item in custo_por_empreendimento]
         + [item.get("empreendimento__nome") for item in planejamento_vs_realizado]
-        + [item.get("empreendimento") for item in margem_por_empreendimento]
+        + [item.get("empreendimento") for item in margem_por_empreendimento],
+        prefix="company",
     )
 
     for venda in vendas_por_corretor:
