@@ -67,6 +67,32 @@ def _group_periods(data, key_func, label_func):
     return list(grouped.values())
 
 
+def _build_placeholder_map(names, prefix):
+    mapping = {}
+    counter = 1
+    for name in names:
+        if name is None:
+            continue
+        original = str(name).strip()
+        if not original:
+            continue
+        if original.lower() in {"não informado", "nao informado"}:
+            continue
+        if original not in mapping:
+            mapping[original] = f"{prefix}_{counter}"
+            counter += 1
+    return mapping
+
+
+def _apply_placeholder(name, mapping):
+    if name is None:
+        return name
+    original = str(name).strip()
+    if not original:
+        return original
+    return mapping.get(original, original)
+
+
 @optional_login_required
 def dashboard_overview(request):
     # Comercial KPIs
@@ -82,7 +108,7 @@ def dashboard_overview(request):
         (total_vendas / total_unidades) if total_unidades else Decimal("0")
     )
 
-    vendas_por_corretor = (
+    vendas_por_corretor = list(
         Venda.objects.values("corretor__nome", "empreendimento__nome")
         .annotate(
             total_valor=Coalesce(Sum("valor_contrato"), Decimal("0")),
@@ -208,7 +234,7 @@ def dashboard_overview(request):
     )
     custo_total_compras = compras_stats["total"]
 
-    custo_por_empreendimento = (
+    custo_por_empreendimento = list(
         PedidoCompra.objects.values("empreendimento__nome")
         .annotate(total=Coalesce(Sum("valor_total"), Decimal("0")))
         .order_by("empreendimento__nome")
@@ -262,9 +288,46 @@ def dashboard_overview(request):
                 "empreendimento": empreendimento.nome,
                 "vendas": vendas_total,
                 "custos": custo_total,
-            "margem": vendas_total - custo_total,
-        }
+                "margem": vendas_total - custo_total,
+            }
+        )
+
+    employee_map = _build_placeholder_map(
+        [v.get("corretor__nome") for v in vendas_por_corretor]
+        + [item.get("corretor") for item in inadimplencia_por_corretor]
     )
+    company_map = _build_placeholder_map(
+        [v.get("empreendimento__nome") for v in vendas_por_corretor]
+        + [item.get("empreendimento__nome") for item in custo_por_empreendimento]
+        + [item.get("empreendimento__nome") for item in planejamento_vs_realizado]
+        + [item.get("empreendimento") for item in margem_por_empreendimento]
+    )
+
+    for venda in vendas_por_corretor:
+        venda["corretor__nome"] = _apply_placeholder(
+            venda.get("corretor__nome"), employee_map
+        )
+        venda["empreendimento__nome"] = _apply_placeholder(
+            venda.get("empreendimento__nome"), company_map
+        )
+
+    for item in inadimplencia_por_corretor:
+        item["corretor"] = _apply_placeholder(item.get("corretor"), employee_map)
+
+    for item in custo_por_empreendimento:
+        item["empreendimento__nome"] = _apply_placeholder(
+            item.get("empreendimento__nome"), company_map
+        )
+
+    for item in planejamento_vs_realizado:
+        item["empreendimento__nome"] = _apply_placeholder(
+            item.get("empreendimento__nome"), company_map
+        )
+
+    for item in margem_por_empreendimento:
+        item["empreendimento"] = _apply_placeholder(
+            item.get("empreendimento"), company_map
+        )
 
     comparativos_series = {
         "mensal": [
